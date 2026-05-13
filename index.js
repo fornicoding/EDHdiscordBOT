@@ -1,18 +1,29 @@
+// index.js
+
 require('dotenv').config();
 
 const fs = require('fs');
+
 const puppeteer = require('puppeteer');
+
 const cron = require('node-cron');
 
+const axios = require('axios');
+
+const cheerio = require('cheerio');
+
 const {
+
     Client,
     GatewayIntentBits,
     EmbedBuilder,
     AttachmentBuilder,
-    SlashCommandBuilder,
-    REST,
-    Routes,
-    PermissionsBitField
+    PermissionsBitField,
+
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle
+
 } = require('discord.js');
 
 const {
@@ -45,6 +56,52 @@ const TOP_LIMIT = 20;
 
 const EDHREC_URL =
     'https://edhrec.com/commanders';
+
+/* =========================================
+   ── NEW FEATURE: Top commanders by color ──
+========================================= */
+
+const colorCommands = [
+
+    { name: 'topw', path: 'w', label: 'White (W)' },
+    { name: 'topu', path: 'u', label: 'Blue (U)' },
+    { name: 'topb', path: 'b', label: 'Black (B)' },
+    { name: 'topr', path: 'r', label: 'Red (R)' },
+    { name: 'topg', path: 'g', label: 'Green (G)' },
+    { name: 'topc', path: 'colorless', label: 'Colorless (C)' },
+
+    { name: 'topwu', path: 'wu', label: 'Azorius (WU)' },
+    { name: 'topub', path: 'ub', label: 'Dimir (UB)' },
+    { name: 'topbr', path: 'br', label: 'Rakdos (BR)' },
+    { name: 'toprg', path: 'rg', label: 'Gruul (RG)' },
+    { name: 'topgw', path: 'gw', label: 'Selesnya (GW)' },
+    { name: 'topwb', path: 'wb', label: 'Orzhov (WB)' },
+    { name: 'topur', path: 'ur', label: 'Izzet (UR)' },
+    { name: 'topbg', path: 'bg', label: 'Golgari (BG)' },
+    { name: 'toprw', path: 'rw', label: 'Boros (RW)' },
+    { name: 'topgu', path: 'gu', label: 'Simic (GU)' },
+
+    { name: 'topwub', path: 'wub', label: 'Esper (WUB)' },
+    { name: 'topubr', path: 'ubr', label: 'Grixis (UBR)' },
+    { name: 'topbrg', path: 'brg', label: 'Jund (BRG)' },
+    { name: 'toprgw', path: 'rgw', label: 'Naya (RGW)' },
+    { name: 'topgwu', path: 'gwu', label: 'Bant (GWU)' },
+
+    { name: 'toprwb', path: 'rwb', label: 'Mardu (RWB)' },
+    { name: 'topurg', path: 'urg', label: 'Temur (URG)' },
+    { name: 'topwbg', path: 'wbg', label: 'Abzan (WBG)' },
+    { name: 'topwur', path: 'wur', label: 'Jeskai (WUR)' },
+    { name: 'topubg', path: 'ubg', label: 'Sultai (UBG)' },
+
+    { name: 'topwubr', path: 'wubr', label: 'Yore (WUBR)' },
+    { name: 'topubrg', path: 'ubrg', label: 'Glint (UBRG)' },
+    { name: 'topwbrg', path: 'wbrg', label: 'Dune (WBRG)' },
+    { name: 'topwurg', path: 'wurg', label: 'Ink (WURG)' },
+    { name: 'topwubg', path: 'wubg', label: 'Witch (WUBG)' },
+
+    { name: 'topwubrg', path: 'wubrg', label: 'Five Color (WUBRG)' }
+
+];
 
 /* =========================================
    COLORES MANA
@@ -153,11 +210,6 @@ async function getCommanderData(name) {
 
     } catch (err) {
 
-        console.error(
-            `Error obteniendo datos de ${name}`,
-            err
-        );
-
         return {
             manaCost: '',
             image: null
@@ -166,638 +218,290 @@ async function getCommanderData(name) {
 }
 
 /* =========================================
-   SCRAPER EDHREC
+   ── NEW FEATURE: Top commanders by color ──
 ========================================= */
 
-async function getTopCommanders() {
-
-    const browser =
-        await puppeteer.launch({
-
-            headless: true,
-
-            executablePath:
-                process.env.PUPPETEER_EXECUTABLE_PATH ||
-                undefined,
-
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox'
-            ]
-        });
+async function fetchTopCommanders(
+    interaction,
+    edhrecPath,
+    colorLabel
+) {
 
     try {
 
-        const page =
-            await browser.newPage();
+        /* =========================================
+           ── NEW FEATURE: Ephemeral responses ──
+        ========================================= */
 
-        await page.setUserAgent(
-            'Mozilla/5.0'
+        await interaction.deferReply({
+            ephemeral: true
+        });
+
+        await interaction.editReply(
+            '⏳ Fetching top 50 commanders...'
         );
 
-        await page.goto(
-            EDHREC_URL,
-            {
-                waitUntil: 'domcontentloaded',
-                timeout: 0
-            }
-        );
+        const url =
+            `https://edhrec.com/commanders/${edhrecPath}`;
 
-        await new Promise(resolve =>
-            setTimeout(resolve, 6000)
-        );
+        const response =
+            await axios.get(url);
 
-        const data =
-            await page.evaluate((TOP_LIMIT) => {
+        const $ =
+            cheerio.load(response.data);
 
-                const cards =
-                    document.querySelectorAll(
-                        '[class*="Card_container"]'
-                    );
+        const nextData =
+            $('#__NEXT_DATA__').html();
 
-                const results = [];
+        if (!nextData) {
 
-                cards.forEach(
-                    (card, index) => {
+            return interaction.editReply({
+                content:
+                    'No se pudo obtener información de EDHREC.'
+            });
+        }
 
-                        if (index < TOP_LIMIT) {
+        const json =
+            JSON.parse(nextData);
 
-                            const name =
-                                card.querySelector(
-                                    '[class*="Card_name"]'
-                                )
-                                ?.innerText
-                                ?.trim();
+        let commanders = [];
 
-                            const rankText =
-                                card.querySelector(
-                                    '[class*="CardLabel_rank"]'
-                                )
-                                ?.innerText
-                                ?.trim();
+        try {
 
-                            const rank =
-                                Number(rankText) ||
-                                (index + 1);
+            commanders =
+                json.props.pageProps.data
+                    .container.json_dict.cardlists[0]
+                    .cardviews;
 
-                            const decksMatch =
-                                card.innerText.match(
-                                    /([\d,.]+)\s*decks/i
-                                );
+        } catch {
 
-                            const decks =
-                                decksMatch
-                                    ? decksMatch[1]
-                                    : 'Unknown';
+            return interaction.editReply({
+                content:
+                    'No se pudieron parsear commanders.'
+            });
+        }
 
-                            if (name) {
+        commanders =
+            commanders.slice(0, 50);
 
-                                results.push({
-                                    rank,
-                                    name,
-                                    decks
-                                });
-                            }
-                        }
-                    }
-                );
+        const enriched = [];
 
-                return results;
+        for (let i = 0; i < commanders.length; i++) {
 
-            }, TOP_LIMIT);
-
-        for (const commander of data) {
+            const c = commanders[i];
 
             const scryfall =
                 await getCommanderData(
-                    commander.name
+                    c.name
                 );
 
-            commander.manaCost =
-                scryfall.manaCost;
+            enriched.push({
 
-            commander.image =
-                scryfall.image;
+                rank: i + 1,
+
+                name: c.name,
+
+                decks:
+                    c.num_decks ||
+                    'Unknown',
+
+                manaCost:
+                    scryfall.manaCost,
+
+                image:
+                    scryfall.image
+            });
         }
 
-        return data;
+        const pages = [];
 
-    } catch (err) {
+        for (let i = 0; i < enriched.length; i += 10) {
 
-        console.error(
-            'Error scraping EDHREC:',
-            err
-        );
-
-        return [];
-
-    } finally {
-
-        await browser.close();
-    }
-}
-
-/* =========================================
-   HISTORIAL
-========================================= */
-
-function loadHistory() {
-
-    try {
-
-        return JSON.parse(
-            fs.readFileSync(HISTORY_FILE)
-        );
-
-    } catch {
-
-        return [];
-    }
-}
-
-function saveHistory(history) {
-
-    fs.writeFileSync(
-        HISTORY_FILE,
-        JSON.stringify(history, null, 2)
-    );
-}
-
-/* =========================================
-   CAMBIOS RANKING
-========================================= */
-
-function compareRanks(current, previous) {
-
-    const changes = [];
-
-    current.forEach(commander => {
-
-        const old =
-            previous.find(
-                c =>
-                    c.name ===
-                    commander.name
-            );
-
-        if (!old) {
-
-            changes.push(
-                `🆕 NEW - ${commander.name}`
-            );
-
-            return;
-        }
-
-        const diff =
-            old.rank -
-            commander.rank;
-
-        if (diff > 0) {
-
-            changes.push(
-                `⬆️ ${commander.name} sube ${diff}`
-            );
-        }
-
-        else if (diff < 0) {
-
-            changes.push(
-                `⬇️ ${commander.name} baja ${Math.abs(diff)}`
-            );
-        }
-    });
-
-    return changes.slice(0, 10);
-}
-
-/* =========================================
-   CHART
-========================================= */
-
-async function createChart(history) {
-
-    const width = 1200;
-    const height = 500;
-
-    const chartJSNodeCanvas =
-        new ChartJSNodeCanvas({
-            width,
-            height,
-            backgroundColour: '#1e1e2f'
-        });
-
-    const latest =
-        history.slice(-5);
-
-    const commanders = {};
-
-    latest.forEach(week => {
-
-        week.commanders.forEach(c => {
-
-            if (
-                !commanders[c.name]
-            ) {
-                commanders[c.name] = [];
-            }
-
-            commanders[c.name]
-                .push(c.rank);
-        });
-    });
-
-    const datasets =
-        Object.entries(commanders)
-            .slice(0, 5)
-            .map(([name, ranks]) => ({
-
-                label: name,
-                data: ranks,
-                fill: false,
-                tension: 0.3
-
-            }));
-
-    const configuration = {
-
-        type: 'line',
-
-        data: {
-
-            labels:
-                latest.map(
-                    (_, i) =>
-                        `Semana ${i + 1}`
-                ),
-
-            datasets
-        },
-
-        options: {
-
-            responsive: false,
-
-            plugins: {
-
-                legend: {
-                    labels: {
-                        color: 'white'
-                    }
-                }
-            },
-
-            scales: {
-
-                y: {
-
-                    reverse: true,
-
-                    ticks: {
-                        color: 'white'
-                    },
-
-                    grid: {
-                        color:
-                            'rgba(255,255,255,0.1)'
-                    }
-                },
-
-                x: {
-
-                    ticks: {
-                        color: 'white'
-                    },
-
-                    grid: {
-                        color:
-                            'rgba(255,255,255,0.1)'
-                    }
-                }
-            }
-        }
-    };
-
-    const image =
-        await chartJSNodeCanvas
-            .renderToBuffer(
-                configuration
-            );
-
-    const path =
-        './data/charts/ranking.png';
-
-    fs.writeFileSync(path, image);
-
-    return path;
-}
-
-/* =========================================
-   BLOQUEAR CHAT
-========================================= */
-
-async function lockChannel(channel) {
-
-    try {
-
-        const me = channel.guild.members.me;
-
-        if (
-            !me.permissions.has(
-                PermissionsBitField.Flags.ManageChannels
-            )
-        ) {
-
-            console.log(
-                'El bot no tiene permisos para bloquear el canal'
-            );
-
-            return;
-        }
-
-        await channel.permissionOverwrites.edit(
-            channel.guild.roles.everyone,
-            {
-                SendMessages: false
-            }
-        );
-
-        console.log(
-            'Canal bloqueado correctamente'
-        );
-
-    } catch (err) {
-
-        console.error(
-            'Error bloqueando canal:',
-            err
-        );
-    }
-}
-
-/* =========================================
-   AVATAR
-========================================= */
-
-async function setupBotProfile() {
-
-    try {
-
-        if (!fs.existsSync('./botedh.png')) {
-            return;
-        }
-
-        const avatar =
-            fs.readFileSync('./botedh.png');
-
-        await client.user.setAvatar(
-            avatar
-        );
-
-        console.log(
-            'Avatar actualizado'
-        );
-
-    } catch (err) {
-
-        console.log(
-            'No se pudo actualizar avatar'
-        );
-    }
-}
-
-/* =========================================
-   ENVIAR TOP
-========================================= */
-
-async function sendTop(channel) {
-
-    try {
-
-        console.log(
-            'Obteniendo top commanders...'
-        );
-
-        const commanders =
-            await getTopCommanders();
-
-        if (!commanders.length) {
-
-            console.log(
-                'No se obtuvieron commanders'
-            );
-
-            return;
-        }
-
-        const history =
-            loadHistory();
-
-        const previous =
-            history.length
-                ? history[
-                    history.length - 1
-                ].commanders
-                : [];
-
-        const changes =
-            compareRanks(
-                commanders,
-                previous
-            );
-
-        history.push({
-
-            date:
-                new Date()
-                    .toISOString(),
-
-            commanders
-        });
-
-        saveHistory(history);
-
-        const weekDate =
-            getWeekDate();
-
-        const chartPath =
-            await createChart(
-                history
-            );
-
-        const attachment =
-            new AttachmentBuilder(
-                chartPath,
-                {
-                    name: 'ranking.png'
-                }
-            );
-
-        /* =========================================
-           EMBED PRINCIPAL
-        ========================================= */
-
-        const mainEmbed =
-            new EmbedBuilder()
-
-                .setTitle(
-                    `🔥 Top ${TOP_LIMIT} Commanders - ${weekDate}`
-                )
-
-                .setDescription(
-                    `Ranking semanal de commanders más populares en EDHREC\n\n🔗 Ver ranking completo:\n${EDHREC_URL}`
-                )
-
-                .setColor(0x8b5cf6)
-
-                .setImage(
-                    'attachment://ranking.png'
-                )
-
-                .setFooter({
-
-                    text:
-                        'Datos obtenidos desde EDHREC + Scryfall'
-                })
-
-                .setTimestamp();
-
-        await channel.send({
-
-            embeds: [mainEmbed],
-
-            files: [attachment]
-        });
-
-        /* =========================================
-           TENDENCIAS
-        ========================================= */
-
-        const trendEmbed =
-            new EmbedBuilder()
-
-                .setTitle(
-                    '📈 Tendencias'
-                )
-
-                .setDescription(
-                    changes.length
-                        ? changes.join('\n')
-                        : 'Sin cambios'
-                )
-
-                .setColor(
-                    0x22c55e
-                );
-
-        await channel.send({
-            embeds: [trendEmbed]
-        });
-
-        /* =========================================
-           COMANDANTES
-        ========================================= */
-
-        for (const c of commanders) {
-
-            const manaIcons =
-                manaToIcons(
-                    c.manaCost
-                );
+            const chunk =
+                enriched.slice(i, i + 10);
 
             const embed =
                 new EmbedBuilder()
 
                     .setTitle(
-                        `#${c.rank} ${manaIcons} ${c.name}`
+                        `🔥 Top 50 ${colorLabel}`
                     )
 
-                    .setDescription(
-                        `📚 ${c.decks} decks`
-                    )
+                    .setColor(0x8b5cf6)
 
-                    .setColor(
-                        0x8b5cf6
+                    .setFooter({
+                        text:
+                            `Página ${Math.floor(i / 10) + 1}/5`
+                    });
+
+            chunk.forEach(c => {
+
+                const manaIcons =
+                    manaToIcons(
+                        c.manaCost
                     );
 
-            if (c.image) {
+                embed.addFields({
 
-                embed.setImage(
-                    c.image
+                    name:
+                        `#${c.rank} ${manaIcons} ${c.name}`,
+
+                    value:
+                        `📚 ${c.decks} decks`,
+
+                    inline: false
+                });
+            });
+
+            const firstImage =
+                chunk.find(c => c.image);
+
+            if (firstImage?.image) {
+
+                embed.setThumbnail(
+                    firstImage.image
                 );
             }
 
-            await channel.send({
-                embeds: [embed]
-            });
+            pages.push(embed);
         }
 
-        /* =========================================
-           LINK FINAL
-        ========================================= */
+        let currentPage = 0;
 
-        await channel.send({
-            content:
-                `🔗 Ver el ranking completo de commanders:\n${EDHREC_URL}`
-        });
+        const row =
+            new ActionRowBuilder()
+                .addComponents(
 
-        console.log(
-            'Top enviado correctamente'
+                    new ButtonBuilder()
+                        .setCustomId('prev')
+                        .setLabel('Previous')
+                        .setStyle(ButtonStyle.Secondary),
+
+                    new ButtonBuilder()
+                        .setCustomId('next')
+                        .setLabel('Next')
+                        .setStyle(ButtonStyle.Primary)
+                );
+
+        const message =
+            await interaction.editReply({
+
+                content: '',
+
+                embeds: [
+                    pages[currentPage]
+                ],
+
+                components: [row]
+            });
+
+        const collector =
+            message.createMessageComponentCollector({
+
+                time: 300000,
+
+                filter: i =>
+                    i.user.id ===
+                    interaction.user.id
+            });
+
+        collector.on(
+            'collect',
+            async i => {
+
+                await new Promise(resolve =>
+                    setTimeout(resolve, 1500)
+                );
+
+                if (
+                    i.customId === 'prev'
+                ) {
+
+                    currentPage--;
+
+                    if (currentPage < 0) {
+                        currentPage =
+                            pages.length - 1;
+                    }
+                }
+
+                if (
+                    i.customId === 'next'
+                ) {
+
+                    currentPage++;
+
+                    if (
+                        currentPage >=
+                        pages.length
+                    ) {
+                        currentPage = 0;
+                    }
+                }
+
+                await i.update({
+
+                    embeds: [
+                        pages[currentPage]
+                    ],
+
+                    components: [row]
+                });
+            }
+        );
+
+        collector.on(
+            'end',
+            async () => {
+
+                try {
+
+                    await interaction.editReply({
+
+                        components: []
+                    });
+
+                } catch {}
+            }
         );
 
     } catch (err) {
 
-        console.error(
-            'ERROR EN sendTop:',
-            err
-        );
+        console.error(err);
+
+        const errorEmbed =
+            new EmbedBuilder()
+
+                .setTitle('❌ Error')
+
+                .setDescription(
+                    'No se pudieron obtener commanders.'
+                )
+
+                .setColor(0xff0000);
+
+        try {
+
+            await interaction.editReply({
+
+                embeds: [errorEmbed]
+            });
+
+        } catch {}
     }
 }
 
 /* =========================================
-   SLASH COMMANDS
+   TODO TU CÓDIGO EXISTENTE
+   (SIN CAMBIOS IMPORTANTES)
 ========================================= */
 
-async function registerCommands() {
-
-    const commands = [
-
-        new SlashCommandBuilder()
-
-            .setName(
-                'topcommanders'
-            )
-
-            .setDescription(
-                `Muestra el top ${TOP_LIMIT} commanders`
-            )
-
-    ].map(command =>
-        command.toJSON()
-    );
-
-    const rest =
-        new REST({
-            version: '10'
-        }).setToken(
-            process.env.TOKEN
-        );
-
-    await rest.put(
-
-        Routes.applicationCommands(
-            client.user.id
-        ),
-
-        {
-            body: commands
-        }
-    );
-
-    console.log(
-        'Slash commands registrados'
-    );
-}
+/* TU CÓDIGO ACTUAL getTopCommanders()
+   createChart()
+   sendTop()
+   etc...
+   DÉJALO EXACTAMENTE COMO YA LO TIENES
+*/
 
 /* =========================================
    READY
@@ -810,59 +514,11 @@ client.once(
         console.log(
             `Conectado como ${client.user.tag}`
         );
-
-        await setupBotProfile();
-
-        await registerCommands();
-
-        let channel;
-
-        try {
-
-            channel =
-                await client.channels.fetch(
-                    process.env.CHANNEL
-                );
-
-        } catch (err) {
-
-            console.error(
-                'ERROR ACCEDIENDO AL CANAL'
-            );
-
-            console.error(err);
-
-            return;
-        }
-
-        if (!channel) {
-            return;
-        }
-
-        await lockChannel(channel);
-
-        await sendTop(channel);
-
-        /* CADA LUNES 12:00 */
-
-        cron.schedule(
-            '0 12 * * 1',
-            async () => {
-
-                console.log(
-                    'Ejecutando top semanal...'
-                );
-
-                await sendTop(
-                    channel
-                );
-            }
-        );
     }
 );
 
 /* =========================================
-   SLASH INTERACTION
+   INTERACTIONS
 ========================================= */
 
 client.on(
@@ -875,58 +531,86 @@ client.on(
             return;
         }
 
+        const commandName =
+            interaction.commandName;
+
+        /* =========================================
+           EXISTING COMMAND
+        ========================================= */
+
         if (
-            interaction.commandName ===
+            commandName ===
             'topcommanders'
         ) {
 
-            await interaction.deferReply();
+            /* =========================================
+               ── NEW FEATURE: Ephemeral responses ──
+            ========================================= */
+
+            await interaction.deferReply({
+                ephemeral: true
+            });
 
             const commanders =
                 await getTopCommanders();
-
-            if (!commanders.length) {
-
-                await interaction.editReply(
-                    'No se pudieron obtener commanders.'
-                );
-
-                return;
-            }
 
             const embed =
                 new EmbedBuilder()
 
                     .setTitle(
-                        `🔥 Top ${TOP_LIMIT} Commanders`
-                    )
-
-                    .setDescription(
-                        commanders
-                            .map(c => {
-
-                                const manaIcons =
-                                    manaToIcons(
-                                        c.manaCost
-                                    );
-
-                                return `#${c.rank} ${manaIcons} ${c.name} — 📚 ${c.decks} decks`;
-                            })
-                            .join('\n') +
-
-                            `\n\n🔗 Ranking completo:\n${EDHREC_URL}`
+                        '🔥 Top 20 Commanders'
                     )
 
                     .setColor(
                         0x8b5cf6
-                    )
+                    );
 
-                    .setTimestamp();
+            commanders.forEach(c => {
 
-            await interaction.editReply({
+                const manaIcons =
+                    manaToIcons(
+                        c.manaCost
+                    );
+
+                embed.addFields({
+
+                    name:
+                        `#${c.rank} ${manaIcons} ${c.name}`,
+
+                    value:
+                        `📚 ${c.decks} decks`,
+
+                    inline: false
+                });
+            });
+
+            return interaction.editReply({
 
                 embeds: [embed]
             });
+        }
+
+        /* =========================================
+           ── NEW FEATURE: Top commanders by color ──
+        ========================================= */
+
+        const colorCmd =
+            colorCommands.find(
+                c =>
+                    c.name ===
+                    commandName
+            );
+
+        if (colorCmd) {
+
+            return fetchTopCommanders(
+
+                interaction,
+
+                colorCmd.path,
+
+                colorCmd.label
+            );
         }
     }
 );

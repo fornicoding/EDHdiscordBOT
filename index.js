@@ -86,7 +86,6 @@ async function getTop25() {
                     const rank =
                         card.querySelector('[class*="CardLabel_rank"]')
                         ?.innerText
-                        ?.innerText
                         ?.trim();
 
                     const decksMatch =

@@ -24,10 +24,6 @@ const client = new Client({
 
 const HISTORY_FILE = './data/history.json';
 
-/* =========================================
-   CREAR CARPETAS
-========================================= */
-
 if (!fs.existsSync('./data')) {
     fs.mkdirSync('./data');
 }
@@ -58,8 +54,7 @@ function manaToIcons(manaCost) {
         return '◻️';
     }
 
-    const matches =
-        manaCost.match(/\{(.*?)\}/g);
+    const matches = manaCost.match(/\{(.*?)\}/g);
 
     if (!matches) {
         return '◻️';
@@ -77,18 +72,41 @@ function manaToIcons(manaCost) {
                 return COLOR_MAP[clean];
             }
 
-            /* mana incoloro */
-
             if (!isNaN(clean)) {
                 return `〔${clean}〕`;
             }
-
-            /* phyrexian / hybrid / snow etc */
 
             return `(${clean})`;
 
         })
         .join('');
+}
+
+/* =========================================
+   FECHA SEMANAL
+========================================= */
+
+function getWeekText() {
+
+    const now = new Date();
+
+    const start = new Date(now);
+
+    start.setDate(
+        now.getDate() - now.getDay() + 1
+    );
+
+    const end = new Date(start);
+
+    end.setDate(start.getDate() + 6);
+
+    const options = {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    };
+
+    return `${start.toLocaleDateString('es-ES', options)} - ${end.toLocaleDateString('es-ES', options)}`;
 }
 
 /* =========================================
@@ -114,6 +132,9 @@ async function getCommanderData(name) {
                 data.image_uris?.normal ||
 
                 data.card_faces?.[0]
+                    ?.image_uris?.normal ||
+
+                data.card_faces?.[1]
                     ?.image_uris?.normal ||
 
                 null
@@ -197,10 +218,12 @@ async function getTop25() {
                                 ?.innerText
                                 ?.trim();
 
-                            /* FIX #null */
-
                             const rank =
-                                index + 1;
+                                card.querySelector(
+                                    '[class*="CardLabel_rank"]'
+                                )
+                                ?.innerText
+                                ?.trim();
 
                             const decksMatch =
                                 card.innerText.match(
@@ -212,10 +235,14 @@ async function getTop25() {
                                     ? decksMatch[1]
                                     : 'Unknown';
 
-                            if (name) {
+                            if (
+                                name &&
+                                rank
+                            ) {
 
                                 results.push({
-                                    rank,
+                                    rank:
+                                        Number(rank),
                                     name,
                                     decks
                                 });
@@ -226,10 +253,6 @@ async function getTop25() {
 
                 return results;
             });
-
-        /* =========================================
-           SCRYFALL DATA
-        ========================================= */
 
         for (const commander of data) {
 
@@ -394,7 +417,7 @@ async function createChart(history) {
             labels:
                 latest.map(
                     (_, i) =>
-                        `Week ${i + 1}`
+                        `Semana ${i + 1}`
                 ),
 
             datasets
@@ -459,77 +482,6 @@ async function createChart(history) {
 }
 
 /* =========================================
-   CREAR EMBEDS
-========================================= */
-
-function buildCommanderEmbeds(commanders) {
-
-    const embeds = [];
-
-    commanders.forEach(c => {
-
-        const manaIcons =
-            manaToIcons(
-                c.manaCost
-            );
-
-        const embed =
-            new EmbedBuilder()
-
-                .setColor(0x8b5cf6)
-
-                .setTitle(
-                    `#${c.rank} ${c.name}`
-                )
-
-                .setDescription(
-                    `${manaIcons}\n\n📚 ${c.decks} decks`
-                )
-
-                .setImage(c.image)
-
-                .setFooter({
-
-                    text:
-                        'Datos obtenidos desde EDHREC + Scryfall'
-                })
-
-                .setTimestamp();
-
-        embeds.push(embed);
-    });
-
-    return embeds;
-}
-
-/* =========================================
-   ENVIAR EMBEDS EN BLOQUES
-========================================= */
-
-async function sendEmbedsInChunks(channel, embeds, attachment = null) {
-
-    for (let i = 0; i < embeds.length; i += 10) {
-
-        const chunk =
-            embeds.slice(i, i + 10);
-
-        if (i === 0 && attachment) {
-
-            await channel.send({
-                embeds: chunk,
-                files: [attachment]
-            });
-
-        } else {
-
-            await channel.send({
-                embeds: chunk
-            });
-        }
-    }
-}
-
-/* =========================================
    ENVIAR TOP
 ========================================= */
 
@@ -578,57 +530,121 @@ async function sendTop(channel) {
 
     saveHistory(history);
 
-    /* =========================================
-       EMBEDS COMMANDERS
-    ========================================= */
-
-    const embeds =
-        buildCommanderEmbeds(
-            commanders
-        );
+    const weekText =
+        getWeekText();
 
     /* =========================================
-       TENDENCIAS
+       EMBED PRINCIPAL
     ========================================= */
 
-    const trendEmbed =
+    const mainEmbed =
         new EmbedBuilder()
 
             .setTitle(
-                '📈 Tendencias'
+                `🔥 Top 25 Commanders EDHREC`
             )
-
-            .setColor(0x00bfff)
 
             .setDescription(
-                changes.length
-                    ? changes.join('\n')
-                    : 'Sin cambios'
+                `📅 Semana: ${weekText}`
             )
+
+            .setColor(0x8b5cf6)
+
+            .setFooter({
+
+                text:
+                    'Datos obtenidos desde EDHREC + Scryfall'
+            })
 
             .setTimestamp();
 
-    embeds.push(trendEmbed);
+    const topText =
+        commanders
+            .map(c => {
 
-    /* =========================================
-       CHART
-    ========================================= */
+                const manaIcons =
+                    manaToIcons(
+                        c.manaCost
+                    );
+
+                return `#${c.rank} ${manaIcons} **${c.name}** — 📚 ${c.decks} decks`;
+
+            })
+            .join('\n');
+
+    mainEmbed.addFields({
+
+        name: '🏆 Ranking',
+
+        value: topText
+    });
+
+    mainEmbed.addFields({
+
+        name: '📈 Tendencias',
+
+        value:
+            changes.length
+                ? changes.join('\n')
+                : 'Sin cambios'
+    });
 
     const chartPath =
         await createChart(
             history
         );
 
-    const attachment =
+    const chartAttachment =
         new AttachmentBuilder(
             chartPath
         );
 
-    await sendEmbedsInChunks(
-        channel,
-        embeds,
-        attachment
-    );
+    await channel.send({
+
+        embeds: [mainEmbed],
+
+        files: [chartAttachment]
+    });
+
+    /* =========================================
+       IMÁGENES CARTAS
+    ========================================= */
+
+    for (const commander of commanders) {
+
+        if (!commander.image) {
+            continue;
+        }
+
+        const manaIcons =
+            manaToIcons(
+                commander.manaCost
+            );
+
+        const imageEmbed =
+            new EmbedBuilder()
+
+                .setTitle(
+                    `#${commander.rank} ${manaIcons} ${commander.name}`
+                )
+
+                .setDescription(
+                    `📚 ${commander.decks} decks`
+                )
+
+                .setImage(
+                    commander.image
+                )
+
+                .setColor(
+                    0x8b5cf6
+                );
+
+        await channel.send({
+
+            embeds: [imageEmbed]
+        });
+    }
 
     console.log(
         'Top enviado correctamente'
@@ -685,12 +701,55 @@ async function registerCommands() {
 ========================================= */
 
 client.once(
-    'ready',
+    'clientReady',
     async () => {
 
         console.log(
             `Conectado como ${client.user.tag}`
         );
+
+        /* =========================================
+           CAMBIAR NOMBRE BOT
+        ========================================= */
+
+        try {
+
+            await client.user.setUsername(
+                'Top Commanders'
+            );
+
+        } catch (err) {
+
+            console.log(
+                'No se pudo cambiar el nombre automáticamente'
+            );
+        }
+
+        /* =========================================
+           CAMBIAR FOTO PERFIL
+        ========================================= */
+
+        try {
+
+            const avatar =
+                fs.readFileSync('./botedh.png');
+
+            await client.user.setAvatar(
+                avatar
+            );
+
+            console.log(
+                'Avatar actualizado'
+            );
+
+        } catch (err) {
+
+            console.log(
+                'No se pudo actualizar el avatar'
+            );
+
+            console.error(err);
+        }
 
         await registerCommands();
 
@@ -715,6 +774,10 @@ client.once(
         }
 
         await sendTop(channel);
+
+        /* =========================================
+           CADA LUNES 12:00
+        ========================================= */
 
         cron.schedule(
             '0 12 * * 1',
@@ -756,38 +819,51 @@ client.on(
             const commanders =
                 await getTop25();
 
-            const embeds =
-                buildCommanderEmbeds(
-                    commanders
-                );
+            const weekText =
+                getWeekText();
 
-            /* PRIMEROS 10 */
+            const embed =
+                new EmbedBuilder()
+
+                    .setTitle(
+                        '🔥 Top 25 Commanders'
+                    )
+
+                    .setDescription(
+                        `📅 Semana: ${weekText}`
+                    )
+
+                    .setColor(
+                        0x8b5cf6
+                    )
+
+                    .setTimestamp();
+
+            const text =
+                commanders
+                    .map(c => {
+
+                        const manaIcons =
+                            manaToIcons(
+                                c.manaCost
+                            );
+
+                        return `#${c.rank} ${manaIcons} **${c.name}**`;
+
+                    })
+                    .join('\n');
+
+            embed.addFields({
+
+                name: '🏆 Ranking',
+
+                value: text
+            });
 
             await interaction.editReply({
 
-                embeds:
-                    embeds.slice(0, 10)
+                embeds: [embed]
             });
-
-            /* RESTO */
-
-            for (
-                let i = 10;
-                i < embeds.length;
-                i += 10
-            ) {
-
-                const chunk =
-                    embeds.slice(
-                        i,
-                        i + 10
-                    );
-
-                await interaction.followUp({
-
-                    embeds: chunk
-                });
-            }
         }
     }
 );

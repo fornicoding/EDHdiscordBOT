@@ -12,6 +12,7 @@ const {
     SlashCommandBuilder,
     REST,
     Routes,
+    ChannelType,
     PermissionsBitField
 } = require('discord.js');
 
@@ -38,13 +39,7 @@ if (!fs.existsSync(HISTORY_FILE)) {
 }
 
 /* =========================================
-   CONFIG
-========================================= */
-
-const BOT_NAME = 'Top Commanders';
-
-/* =========================================
-   ICONOS COLORES MANA
+   COLORES MANA
 ========================================= */
 
 const COLOR_MAP = {
@@ -76,6 +71,8 @@ function manaToIcons(manaCost) {
                     .replace('{', '')
                     .replace('}', '');
 
+            /* COLORES */
+
             if (
                 clean === 'W' ||
                 clean === 'U' ||
@@ -83,13 +80,16 @@ function manaToIcons(manaCost) {
                 clean === 'R' ||
                 clean === 'G'
             ) {
-
                 return COLOR_MAP[clean];
             }
+
+            /* INCOLORO */
 
             if (!isNaN(clean)) {
                 return `〔${clean}〕`;
             }
+
+            /* HÍBRIDOS / OTROS */
 
             return `(${clean})`;
 
@@ -101,43 +101,15 @@ function manaToIcons(manaCost) {
    FECHA SEMANA
 ========================================= */
 
-function getWeekRange() {
+function getWeekDate() {
 
     const now = new Date();
 
-    const first =
-        new Date(now);
-
-    const last =
-        new Date(now);
-
-    const day =
-        now.getDay();
-
-    const diffToMonday =
-        day === 0
-            ? -6
-            : 1 - day;
-
-    first.setDate(
-        now.getDate() + diffToMonday
-    );
-
-    last.setDate(
-        first.getDate() + 6
-    );
-
-    const format = date =>
-        date.toLocaleDateString(
-            'es-ES',
-            {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric'
-            }
-        );
-
-    return `${format(first)} - ${format(last)}`;
+    return now.toLocaleDateString('es-ES', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
 }
 
 /* =========================================
@@ -159,8 +131,7 @@ async function getCommanderData(name) {
             manaCost:
                 data.mana_cost ||
 
-                data.card_faces?.[0]
-                    ?.mana_cost ||
+                data.card_faces?.[0]?.mana_cost ||
 
                 '',
 
@@ -168,9 +139,6 @@ async function getCommanderData(name) {
                 data.image_uris?.normal ||
 
                 data.card_faces?.[0]
-                    ?.image_uris?.normal ||
-
-                data.card_faces?.[1]
                     ?.image_uris?.normal ||
 
                 null
@@ -229,7 +197,7 @@ async function getTop25() {
         );
 
         await new Promise(resolve =>
-            setTimeout(resolve, 5000)
+            setTimeout(resolve, 6000)
         );
 
         const data =
@@ -245,7 +213,7 @@ async function getTop25() {
                 cards.forEach(
                     (card, index) => {
 
-                        if (results.length < 25) {
+                        if (index < 25) {
 
                             const name =
                                 card.querySelector(
@@ -289,6 +257,8 @@ async function getTop25() {
 
                 return results;
             });
+
+        /* DATOS SCRYFALL */
 
         for (const commander of data) {
 
@@ -392,7 +362,7 @@ function compareRanks(current, previous) {
         }
     });
 
-    return changes.slice(0, 5);
+    return changes.slice(0, 10);
 }
 
 /* =========================================
@@ -408,7 +378,7 @@ async function createChart(history) {
         new ChartJSNodeCanvas({
             width,
             height,
-            backgroundColour: '#111827'
+            backgroundColour: '#1e1e2f'
         });
 
     const latest =
@@ -423,7 +393,6 @@ async function createChart(history) {
             if (
                 !commanders[c.name]
             ) {
-
                 commanders[c.name] = [];
             }
 
@@ -546,44 +515,41 @@ async function lockChannel(channel) {
 }
 
 /* =========================================
-   FOTO PERFIL + NOMBRE
+   FOTO PERFIL + NOMBRE BOT
 ========================================= */
 
 async function setupBotProfile() {
 
     try {
 
-        if (
-            fs.existsSync('./botedh.png')
-        ) {
-
-            const avatar =
-                fs.readFileSync(
-                    './botedh.png'
-                );
-
-            await client.user.setAvatar(
-                avatar
-            );
-
-            console.log(
-                'Avatar actualizado'
-            );
-        }
-
         await client.user.setUsername(
-            BOT_NAME
-        );
-
-        console.log(
-            'Nombre actualizado'
+            'Top Commanders'
         );
 
     } catch (err) {
 
-        console.error(
-            'Error configurando perfil:',
-            err.message
+        console.log(
+            'No se pudo cambiar el nombre.'
+        );
+    }
+
+    try {
+
+        const avatar =
+            fs.readFileSync('./botedh.png');
+
+        await client.user.setAvatar(
+            avatar
+        );
+
+        console.log(
+            'Avatar actualizado'
+        );
+
+    } catch (err) {
+
+        console.log(
+            'No se pudo actualizar avatar'
         );
     }
 }
@@ -637,22 +603,22 @@ async function sendTop(channel) {
 
     saveHistory(history);
 
-    const weekRange =
-        getWeekRange();
+    const weekDate =
+        getWeekDate();
 
     /* =========================================
        EMBED PRINCIPAL
     ========================================= */
 
-    const embed =
+    const mainEmbed =
         new EmbedBuilder()
 
             .setTitle(
-                `🔥 Top 25 Commanders EDHREC`
+                `🔥 Top 25 Commanders - ${weekDate}`
             )
 
             .setDescription(
-                `📅 Semana: ${weekRange}`
+                'Ranking semanal de commanders más populares en EDHREC'
             )
 
             .setColor(0x8b5cf6)
@@ -666,45 +632,91 @@ async function sendTop(channel) {
             .setTimestamp();
 
     /* =========================================
-       SOLO 24 FIELDS
-       (Discord máximo 25)
+       SOLO 25 FIELDS MAX
     ========================================= */
 
-    const top24 =
-        commanders.slice(0, 24);
-
-    top24.forEach(c => {
+    commanders.forEach(c => {
 
         const manaIcons =
             manaToIcons(
                 c.manaCost
             );
 
-        embed.addFields({
+        mainEmbed.addFields({
 
             name:
                 `#${c.rank} ${manaIcons} ${c.name}`,
 
             value:
-                `[🖼️ Ver carta](${c.image || 'https://cards.scryfall.io'} )\n📚 ${c.decks} decks`,
+                `📚 ${c.decks} decks`,
 
             inline: false
         });
     });
 
     /* =========================================
-       TENDENCIAS = FIELD 25
+       EMBEDS DE IMÁGENES
     ========================================= */
 
-    embed.addFields({
+    const imageEmbeds = [];
 
-        name: '📈 Tendencias',
+    commanders.forEach(c => {
 
-        value:
-            changes.length
-                ? changes.join('\n')
-                : 'Sin cambios'
+        if (!c.image) {
+            return;
+        }
+
+        const manaIcons =
+            manaToIcons(
+                c.manaCost
+            );
+
+        const embed =
+            new EmbedBuilder()
+
+                .setTitle(
+                    `#${c.rank} ${manaIcons} ${c.name}`
+                )
+
+                .setDescription(
+                    `📚 ${c.decks} decks`
+                )
+
+                .setImage(
+                    c.image
+                )
+
+                .setColor(
+                    0x8b5cf6
+                );
+
+        imageEmbeds.push(embed);
     });
+
+    /* =========================================
+       TENDENCIAS
+    ========================================= */
+
+    const trendEmbed =
+        new EmbedBuilder()
+
+            .setTitle(
+                '📈 Tendencias'
+            )
+
+            .setDescription(
+                changes.length
+                    ? changes.join('\n')
+                    : 'Sin cambios'
+            )
+
+            .setColor(
+                0x22c55e
+            );
+
+    /* =========================================
+       CHART
+    ========================================= */
 
     const chartPath =
         await createChart(
@@ -717,39 +729,16 @@ async function sendTop(channel) {
         );
 
     /* =========================================
-       ENVIAR IMÁGENES DE LAS 25 CARTAS
-    ========================================= */
-
-    for (const c of commanders) {
-
-        if (c.image) {
-
-            const cardEmbed =
-                new EmbedBuilder()
-
-                    .setTitle(
-                        `#${c.rank} ${c.name}`
-                    )
-
-                    .setImage(c.image)
-
-                    .setColor(
-                        0x8b5cf6
-                    );
-
-            await channel.send({
-                embeds: [cardEmbed]
-            });
-        }
-    }
-
-    /* =========================================
-       ENVIAR EMBED PRINCIPAL
+       ENVIAR
     ========================================= */
 
     await channel.send({
 
-        embeds: [embed],
+        embeds: [
+            mainEmbed,
+            trendEmbed,
+            ...imageEmbeds
+        ],
 
         files: [attachment]
     });
@@ -844,9 +833,7 @@ client.once(
 
         await sendTop(channel);
 
-        /* =========================================
-           TODOS LOS LUNES A LAS 12
-        ========================================= */
+        /* CADA LUNES A LAS 12 */
 
         cron.schedule(
             '0 12 * * 1',
@@ -895,20 +882,13 @@ client.on(
                         '🔥 Top 25 Commanders'
                     )
 
-                    .setDescription(
-                        `📅 Semana: ${getWeekRange()}`
-                    )
-
                     .setColor(
                         0x8b5cf6
                     )
 
                     .setTimestamp();
 
-            const top24 =
-                commanders.slice(0, 24);
-
-            top24.forEach(c => {
+            commanders.forEach(c => {
 
                 const manaIcons =
                     manaToIcons(
@@ -921,49 +901,16 @@ client.on(
                         `#${c.rank} ${manaIcons} ${c.name}`,
 
                     value:
-                        `[🖼️ Ver carta](${c.image || 'https://cards.scryfall.io'})\n📚 ${c.decks} decks`,
+                        `📚 ${c.decks} decks`,
 
                     inline: false
                 });
-            });
-
-            embed.addFields({
-
-                name: '📈 Info',
-
-                value:
-                    'Usa las imágenes enviadas debajo para ver las cartas completas.'
             });
 
             await interaction.editReply({
 
                 embeds: [embed]
             });
-
-            for (const c of commanders) {
-
-                if (c.image) {
-
-                    const cardEmbed =
-                        new EmbedBuilder()
-
-                            .setTitle(
-                                `#${c.rank} ${c.name}`
-                            )
-
-                            .setImage(
-                                c.image
-                            )
-
-                            .setColor(
-                                0x8b5cf6
-                            );
-
-                    await interaction.followUp({
-                        embeds: [cardEmbed]
-                    });
-                }
-            }
         }
     }
 );

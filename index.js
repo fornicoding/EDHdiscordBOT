@@ -385,7 +385,7 @@ client.once('ready', async () => {
 
     const channel =
         await client.channels.fetch(
-            process.env.CHANNEL_ID
+            process.env.CHANNEL
         );
 
     await sendTop(channel);

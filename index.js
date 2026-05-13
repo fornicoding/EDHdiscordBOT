@@ -41,72 +41,103 @@ if (!fs.existsSync(HISTORY_FILE)) {
 async function getTop25() {
 
     const browser = await puppeteer.launch({
-        headless: true
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox'
+        ]
     });
 
-    const page = await browser.newPage();
+    try {
 
-    await page.setUserAgent(
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-    );
+        const page = await browser.newPage();
 
-    await page.goto('https://edhrec.com/commanders', {
-        waitUntil: 'domcontentloaded',
-        timeout: 0
-    });
+        await page.setUserAgent(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        );
 
-    await new Promise(resolve => setTimeout(resolve, 5000));
-
-    const data = await page.evaluate(() => {
-
-        const cards =
-            document.querySelectorAll('[class*="Card_container"]');
-
-        const results = [];
-
-        cards.forEach((card, index) => {
-
-            if (index < 25) {
-
-                const name =
-                    card.querySelector('[class*="Card_name"]')
-                    ?.innerText
-                    ?.trim();
-
-                const rank =
-                    card.querySelector('[class*="CardLabel_rank"]')
-                    ?.innerText
-                    ?.trim();
-
-                const decks =
-                    card.innerText.match(/([\d,.]+)\s*decks/i)?.[1] || 'Unknown';
-
-                const image =
-                    card.querySelector('img')
-                    ?.src;
-
-                results.push({
-                    rank: Number(rank),
-                    name,
-                    decks,
-                    image
-                });
-            }
+        await page.goto('https://edhrec.com/commanders', {
+            waitUntil: 'domcontentloaded',
+            timeout: 0
         });
 
-        return results;
-    });
+        await new Promise(resolve => setTimeout(resolve, 5000));
 
-    await browser.close();
+        const data = await page.evaluate(() => {
 
-    return data;
+            const cards =
+                document.querySelectorAll('[class*="Card_container"]');
+
+            const results = [];
+
+            cards.forEach((card, index) => {
+
+                if (index < 25) {
+
+                    const name =
+                        card.querySelector('[class*="Card_name"]')
+                        ?.innerText
+                        ?.trim();
+
+                    const rank =
+                        card.querySelector('[class*="CardLabel_rank"]')
+                        ?.innerText
+                        ?.innerText
+                        ?.trim();
+
+                    const decksMatch =
+                        card.innerText.match(/([\d,.]+)\s*decks/i);
+
+                    const decks =
+                        decksMatch
+                            ? decksMatch[1]
+                            : 'Unknown';
+
+                    const image =
+                        card.querySelector('img')
+                        ?.src;
+
+                    if (name && rank) {
+
+                        results.push({
+                            rank: Number(rank),
+                            name,
+                            decks,
+                            image
+                        });
+                    }
+                }
+            });
+
+            return results;
+        });
+
+        return data;
+
+    } catch (err) {
+
+        console.error('Error scraping EDHREC:', err);
+
+        return [];
+
+    } finally {
+
+        await browser.close();
+    }
 }
 
 function loadHistory() {
 
-    return JSON.parse(
-        fs.readFileSync(HISTORY_FILE)
-    );
+    try {
+
+        return JSON.parse(
+            fs.readFileSync(HISTORY_FILE)
+        );
+
+    } catch {
+
+        return [];
+    }
 }
 
 function saveHistory(history) {
@@ -137,7 +168,8 @@ function compareRanks(current, previous) {
             return;
         }
 
-        const diff = old.rank - commander.rank;
+        const diff =
+            old.rank - commander.rank;
 
         if (diff > 0) {
 
@@ -187,21 +219,34 @@ async function createChart(history) {
     const datasets = Object.entries(commanders)
         .slice(0, 5)
         .map(([name, ranks]) => ({
+
             label: name,
             data: ranks,
             fill: false
+
         }));
 
     const configuration = {
+
         type: 'line',
+
         data: {
-            labels: latest.map((_, i) => `Week ${i + 1}`),
+
+            labels: latest.map(
+                (_, i) => `Week ${i + 1}`
+            ),
+
             datasets
         },
+
         options: {
+
             responsive: false,
+
             scales: {
+
                 y: {
+
                     reverse: true,
                     beginAtZero: false
                 }
@@ -212,7 +257,8 @@ async function createChart(history) {
     const image =
         await chartJSNodeCanvas.renderToBuffer(configuration);
 
-    const path = './data/charts/ranking.png';
+    const path =
+        './data/charts/ranking.png';
 
     fs.writeFileSync(path, image);
 
@@ -221,9 +267,20 @@ async function createChart(history) {
 
 async function sendTop(channel) {
 
-    const commanders = await getTop25();
+    console.log('Obteniendo top commanders...');
 
-    const history = loadHistory();
+    const commanders =
+        await getTop25();
+
+    if (!commanders.length) {
+
+        console.log('No se obtuvieron commanders');
+
+        return;
+    }
+
+    const history =
+        loadHistory();
 
     const previous =
         history.length
@@ -234,6 +291,7 @@ async function sendTop(channel) {
         compareRanks(commanders, previous);
 
     history.push({
+
         date: new Date().toISOString(),
         commanders
     });
@@ -241,9 +299,11 @@ async function sendTop(channel) {
     saveHistory(history);
 
     const description = commanders
-        .map(c =>
-            `#${c.rank} - **${c.name}** (${c.decks} decks)`
-        )
+        .map(c => {
+
+            return `#${c.rank} - **${c.name}** (${c.decks} decks)`;
+
+        })
         .join('\n');
 
     const embed = new EmbedBuilder()
@@ -252,10 +312,18 @@ async function sendTop(channel) {
         .setColor(0x8b5cf6)
         .setThumbnail(commanders[0]?.image)
         .addFields({
+
             name: '📈 Tendencias',
-            value: changes.length
-                ? changes.join('\n')
-                : 'Sin cambios'
+
+            value:
+                changes.length
+                    ? changes.join('\n')
+                    : 'Sin cambios'
+
+        })
+        .setFooter({
+
+            text: 'Datos obtenidos desde EDHREC'
         })
         .setTimestamp();
 
@@ -266,9 +334,12 @@ async function sendTop(channel) {
         new AttachmentBuilder(chartPath);
 
     await channel.send({
+
         embeds: [embed],
         files: [attachment]
     });
+
+    console.log('Top enviado correctamente');
 }
 
 async function registerCommands() {
@@ -288,13 +359,17 @@ async function registerCommands() {
     }).setToken(process.env.TOKEN);
 
     await rest.put(
+
         Routes.applicationCommands(
             client.user.id
         ),
+
         {
             body: commands
         }
     );
+
+    console.log('Slash commands registrados');
 }
 
 client.once('ready', async () => {
@@ -316,6 +391,10 @@ client.once('ready', async () => {
         '0 12 * * 1',
         async () => {
 
+            console.log(
+                'Ejecutando top semanal...'
+            );
+
             await sendTop(channel);
 
         }
@@ -336,19 +415,23 @@ client.on('interactionCreate', async interaction => {
             await getTop25();
 
         const text = commanders
-            .map(c =>
-                `#${c.rank} - ${c.name}`
-            )
+            .map(c => {
+
+                return `#${c.rank} - ${c.name}`;
+
+            })
             .join('\n');
 
         const embed = new EmbedBuilder()
             .setTitle(
-                '🔥 Top Commanders'
+                '🔥 Top 25 Commanders'
             )
             .setDescription(text)
-            .setColor(0x8b5cf6);
+            .setColor(0x8b5cf6)
+            .setTimestamp();
 
         await interaction.editReply({
+
             embeds: [embed]
         });
     }

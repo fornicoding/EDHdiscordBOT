@@ -24,6 +24,10 @@ const client = new Client({
 
 const HISTORY_FILE = './data/history.json';
 
+/* =========================================
+   CREAR CARPETAS
+========================================= */
+
 if (!fs.existsSync('./data')) {
     fs.mkdirSync('./data');
 }
@@ -37,7 +41,7 @@ if (!fs.existsSync(HISTORY_FILE)) {
 }
 
 /* =========================================
-   ICONOS COLORES MANA
+   ICONOS MANA
 ========================================= */
 
 const COLOR_MAP = {
@@ -51,14 +55,14 @@ const COLOR_MAP = {
 function manaToIcons(manaCost) {
 
     if (!manaCost) {
-        return '';
+        return '◻️';
     }
 
     const matches =
         manaCost.match(/\{(.*?)\}/g);
 
     if (!matches) {
-        return '';
+        return '◻️';
     }
 
     return matches
@@ -69,22 +73,17 @@ function manaToIcons(manaCost) {
                     .replace('{', '')
                     .replace('}', '');
 
-            if (
-                clean === 'W' ||
-                clean === 'U' ||
-                clean === 'B' ||
-                clean === 'R' ||
-                clean === 'G'
-            ) {
-
+            if (COLOR_MAP[clean]) {
                 return COLOR_MAP[clean];
             }
 
-            /* COSTE INCOLORO */
+            /* mana incoloro */
 
             if (!isNaN(clean)) {
                 return `〔${clean}〕`;
             }
+
+            /* phyrexian / hybrid / snow etc */
 
             return `(${clean})`;
 
@@ -198,12 +197,10 @@ async function getTop25() {
                                 ?.innerText
                                 ?.trim();
 
+                            /* FIX #null */
+
                             const rank =
-                                card.querySelector(
-                                    '[class*="CardLabel_rank"]'
-                                )
-                                ?.innerText
-                                ?.trim();
+                                index + 1;
 
                             const decksMatch =
                                 card.innerText.match(
@@ -215,14 +212,10 @@ async function getTop25() {
                                     ? decksMatch[1]
                                     : 'Unknown';
 
-                            if (
-                                name &&
-                                rank
-                            ) {
+                            if (name) {
 
                                 results.push({
-                                    rank:
-                                        Number(rank),
+                                    rank,
                                     name,
                                     decks
                                 });
@@ -235,7 +228,7 @@ async function getTop25() {
             });
 
         /* =========================================
-           DATOS SCRYFALL
+           SCRYFALL DATA
         ========================================= */
 
         for (const commander of data) {
@@ -355,7 +348,8 @@ async function createChart(history) {
     const chartJSNodeCanvas =
         new ChartJSNodeCanvas({
             width,
-            height
+            height,
+            backgroundColour: '#111827'
         });
 
     const latest =
@@ -465,6 +459,65 @@ async function createChart(history) {
 }
 
 /* =========================================
+   CREAR EMBEDS
+========================================= */
+
+function buildCommanderEmbeds(commanders) {
+
+    const embeds = [];
+
+    /* máximo 5 fields por embed */
+
+    for (let i = 0; i < commanders.length; i += 5) {
+
+        const chunk =
+            commanders.slice(i, i + 5);
+
+        const embed =
+            new EmbedBuilder()
+
+                .setColor(0x8b5cf6)
+
+                .setTitle(
+                    i === 0
+                        ? '🔥 Top 25 Commanders EDHREC'
+                        : `🔥 Continuación (${i + 1}-${i + chunk.length})`
+                )
+
+                .setFooter({
+
+                    text:
+                        'Datos obtenidos desde EDHREC + Scryfall'
+                })
+
+                .setTimestamp();
+
+        chunk.forEach(c => {
+
+            const manaIcons =
+                manaToIcons(
+                    c.manaCost
+                );
+
+            embed.addFields({
+
+                name:
+                    `#${c.rank} ${manaIcons} ${c.name}`,
+
+                value:
+                    `📚 ${c.decks} decks\n🖼️ ${c.image || 'Sin imagen'}`,
+
+                inline: false
+            });
+        });
+
+        embeds.push(embed);
+    }
+
+    return embeds;
+}
+
+/* =========================================
    ENVIAR TOP
 ========================================= */
 
@@ -514,62 +567,36 @@ async function sendTop(channel) {
     saveHistory(history);
 
     /* =========================================
-       EMBED PRINCIPAL
+       EMBEDS COMMANDERS
     ========================================= */
 
-    const embed =
-        new EmbedBuilder()
-
-            .setTitle(
-                '🔥 Top 25 Commanders EDHREC'
-            )
-
-            .setColor(0x8b5cf6)
-
-            .setFooter({
-
-                text:
-                    'Datos obtenidos desde EDHREC + Scryfall'
-            })
-
-            .setTimestamp();
-
-    /* =========================================
-       AÑADIR COMMANDERS
-    ========================================= */
-
-    commanders.forEach(c => {
-
-        const manaIcons =
-            manaToIcons(
-                c.manaCost
-            );
-
-        embed.addFields({
-
-            name:
-                `#${c.rank} ${manaIcons} ${c.name}`,
-
-            value:
-                `📚 ${c.decks} decks\n🖼️ ${c.image}`,
-
-            inline: false
-        });
-    });
+    const embeds =
+        buildCommanderEmbeds(
+            commanders
+        );
 
     /* =========================================
        TENDENCIAS
     ========================================= */
 
-    embed.addFields({
+    const trendEmbed =
+        new EmbedBuilder()
 
-        name: '📈 Tendencias',
+            .setTitle(
+                '📈 Tendencias'
+            )
 
-        value:
-            changes.length
-                ? changes.join('\n')
-                : 'Sin cambios'
-    });
+            .setColor(0x00bfff)
+
+            .setDescription(
+                changes.length
+                    ? changes.join('\n')
+                    : 'Sin cambios'
+            )
+
+            .setTimestamp();
+
+    embeds.push(trendEmbed);
 
     /* =========================================
        CHART
@@ -587,7 +614,7 @@ async function sendTop(channel) {
 
     await channel.send({
 
-        embeds: [embed],
+        embeds,
 
         files: [attachment]
     });
@@ -647,7 +674,7 @@ async function registerCommands() {
 ========================================= */
 
 client.once(
-    'clientReady',
+    'ready',
     async () => {
 
         console.log(
@@ -718,41 +745,14 @@ client.on(
             const commanders =
                 await getTop25();
 
-            const embed =
-                new EmbedBuilder()
-
-                    .setTitle(
-                        '🔥 Top 25 Commanders'
-                    )
-
-                    .setColor(
-                        0x8b5cf6
-                    )
-
-                    .setTimestamp();
-
-            commanders.forEach(c => {
-
-                const manaIcons =
-                    manaToIcons(
-                        c.manaCost
-                    );
-
-                embed.addFields({
-
-                    name:
-                        `#${c.rank} ${manaIcons} ${c.name}`,
-
-                    value:
-                        `📚 ${c.decks} decks\n🖼️ ${c.image}`,
-
-                    inline: false
-                });
-            });
+            const embeds =
+                buildCommanderEmbeds(
+                    commanders
+                );
 
             await interaction.editReply({
 
-                embeds: [embed]
+                embeds
             });
         }
     }

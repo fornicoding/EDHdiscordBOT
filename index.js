@@ -12,7 +12,8 @@ const {
     SlashCommandBuilder,
     REST,
     Routes,
-    PermissionsBitField
+    PermissionsBitField,
+    ChannelType
 } = require('discord.js');
 
 const {
@@ -133,17 +134,12 @@ async function getCommanderData(name) {
 
             manaCost:
                 data.mana_cost ||
-
                 data.card_faces?.[0]?.mana_cost ||
-
                 '',
 
             image:
                 data.image_uris?.normal ||
-
-                data.card_faces?.[0]
-                    ?.image_uris?.normal ||
-
+                data.card_faces?.[0]?.image_uris?.normal ||
                 null
         };
 
@@ -246,9 +242,7 @@ async function getTop25() {
                                     ? decksMatch[1]
                                     : 'Unknown';
 
-                            if (
-                                name
-                            ) {
+                            if (name) {
 
                                 results.push({
                                     rank,
@@ -497,8 +491,7 @@ async function lockChannel(channel) {
 
     try {
 
-        const me =
-            channel.guild.members.me;
+        const me = channel.guild.members.me;
 
         if (
             !me.permissions.has(
@@ -528,7 +521,7 @@ async function lockChannel(channel) {
 
         console.error(
             'Error bloqueando canal:',
-            err.message
+            err
         );
     }
 }
@@ -660,21 +653,11 @@ async function sendTop(channel) {
 
                 .setTimestamp();
 
-        const topText =
-            commanders.map(c => {
+        await channel.send({
 
-                const manaIcons =
-                    manaToIcons(
-                        c.manaCost
-                    );
+            embeds: [mainEmbed],
 
-                return `#${c.rank} ${manaIcons} ${c.name}\n📚 ${c.decks} decks`;
-
-            }).join('\n\n');
-
-        mainEmbed.addFields({
-            name: '🏆 Ranking',
-            value: topText.slice(0, 1024)
+            files: [attachment]
         });
 
         /* =========================================
@@ -698,31 +681,15 @@ async function sendTop(channel) {
                     0x22c55e
                 );
 
-        /* =========================================
-           MENSAJE PRINCIPAL
-        ========================================= */
-
         await channel.send({
-
-            embeds: [
-                mainEmbed,
-                trendEmbed
-            ],
-
-            files: [attachment]
+            embeds: [trendEmbed]
         });
 
         /* =========================================
-           EMBEDS IMAGENES
+           COMANDANTES CON FOTO JUSTO DEBAJO
         ========================================= */
 
-        const imageEmbeds = [];
-
-        commanders.forEach(c => {
-
-            if (!c.image) {
-                return;
-            }
+        for (const c of commanders) {
 
             const manaIcons =
                 manaToIcons(
@@ -740,32 +707,19 @@ async function sendTop(channel) {
                         `📚 ${c.decks} decks`
                     )
 
-                    .setImage(
-                        c.image
-                    )
-
                     .setColor(
                         0x8b5cf6
                     );
 
-            imageEmbeds.push(embed);
-        });
+            if (c.image) {
 
-        /* =========================================
-           ENVIAR IMAGENES EN BLOQUES
-        ========================================= */
-
-        for (
-            let i = 0;
-            i < imageEmbeds.length;
-            i += 10
-        ) {
-
-            const chunk =
-                imageEmbeds.slice(i, i + 10);
+                embed.setImage(
+                    c.image
+                );
+            }
 
             await channel.send({
-                embeds: chunk
+                embeds: [embed]
             });
         }
 
@@ -776,7 +730,7 @@ async function sendTop(channel) {
     } catch (err) {
 
         console.error(
-            'Error enviando top:',
+            'ERROR EN sendTop:',
             err
         );
     }
@@ -863,11 +817,15 @@ client.once(
             return;
         }
 
+        if (!channel) {
+            return;
+        }
+
         await lockChannel(channel);
 
         await sendTop(channel);
 
-        /* CADA LUNES 12:00 */
+        /* CADA LUNES A LAS 12 */
 
         cron.schedule(
             '0 12 * * 1',
@@ -906,69 +864,49 @@ client.on(
 
             await interaction.deferReply();
 
-            try {
+            const commanders =
+                await getTop25();
 
-                const commanders =
-                    await getTop25();
+            if (!commanders.length) {
 
-                const embeds = [];
+                await interaction.editReply(
+                    'No se pudieron obtener commanders.'
+                );
 
-                for (
-                    let i = 0;
-                    i < commanders.length;
-                    i += 10
-                ) {
-
-                    const chunk =
-                        commanders.slice(i, i + 10);
-
-                    const embed =
-                        new EmbedBuilder()
-
-                            .setTitle(
-                                `🔥 Top Commanders (${i + 1}-${i + chunk.length})`
-                            )
-
-                            .setColor(
-                                0x8b5cf6
-                            )
-
-                            .setTimestamp();
-
-                    chunk.forEach(c => {
-
-                        const manaIcons =
-                            manaToIcons(
-                                c.manaCost
-                            );
-
-                        embed.addFields({
-
-                            name:
-                                `#${c.rank} ${manaIcons} ${c.name}`,
-
-                            value:
-                                `📚 ${c.decks} decks`,
-
-                            inline: false
-                        });
-                    });
-
-                    embeds.push(embed);
-                }
-
-                await interaction.editReply({
-                    embeds: embeds.slice(0, 10)
-                });
-
-            } catch (err) {
-
-                console.error(err);
-
-                await interaction.editReply({
-                    content: 'Error obteniendo commanders'
-                });
+                return;
             }
+
+            const embed =
+                new EmbedBuilder()
+
+                    .setTitle(
+                        '🔥 Top 25 Commanders'
+                    )
+
+                    .setDescription(
+                        commanders
+                            .map(c => {
+
+                                const manaIcons =
+                                    manaToIcons(
+                                        c.manaCost
+                                    );
+
+                                return `#${c.rank} ${manaIcons} ${c.name} — 📚 ${c.decks} decks`;
+                            })
+                            .join('\n')
+                    )
+
+                    .setColor(
+                        0x8b5cf6
+                    )
+
+                    .setTimestamp();
+
+            await interaction.editReply({
+
+                embeds: [embed]
+            });
         }
     }
 );

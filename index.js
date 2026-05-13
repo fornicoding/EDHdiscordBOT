@@ -11,7 +11,8 @@ const {
     AttachmentBuilder,
     SlashCommandBuilder,
     REST,
-    Routes
+    Routes,
+    PermissionsBitField
 } = require('discord.js');
 
 const {
@@ -37,7 +38,13 @@ if (!fs.existsSync(HISTORY_FILE)) {
 }
 
 /* =========================================
-   ICONOS MANA
+   CONFIG
+========================================= */
+
+const BOT_NAME = 'Top Commanders';
+
+/* =========================================
+   ICONOS COLORES MANA
 ========================================= */
 
 const COLOR_MAP = {
@@ -51,13 +58,14 @@ const COLOR_MAP = {
 function manaToIcons(manaCost) {
 
     if (!manaCost) {
-        return '◻️';
+        return '';
     }
 
-    const matches = manaCost.match(/\{(.*?)\}/g);
+    const matches =
+        manaCost.match(/\{(.*?)\}/g);
 
     if (!matches) {
-        return '◻️';
+        return '';
     }
 
     return matches
@@ -68,7 +76,14 @@ function manaToIcons(manaCost) {
                     .replace('{', '')
                     .replace('}', '');
 
-            if (COLOR_MAP[clean]) {
+            if (
+                clean === 'W' ||
+                clean === 'U' ||
+                clean === 'B' ||
+                clean === 'R' ||
+                clean === 'G'
+            ) {
+
                 return COLOR_MAP[clean];
             }
 
@@ -83,30 +98,46 @@ function manaToIcons(manaCost) {
 }
 
 /* =========================================
-   FECHA SEMANAL
+   FECHA SEMANA
 ========================================= */
 
-function getWeekText() {
+function getWeekRange() {
 
     const now = new Date();
 
-    const start = new Date(now);
+    const first =
+        new Date(now);
 
-    start.setDate(
-        now.getDate() - now.getDay() + 1
+    const last =
+        new Date(now);
+
+    const day =
+        now.getDay();
+
+    const diffToMonday =
+        day === 0
+            ? -6
+            : 1 - day;
+
+    first.setDate(
+        now.getDate() + diffToMonday
     );
 
-    const end = new Date(start);
+    last.setDate(
+        first.getDate() + 6
+    );
 
-    end.setDate(start.getDate() + 6);
+    const format = date =>
+        date.toLocaleDateString(
+            'es-ES',
+            {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            }
+        );
 
-    const options = {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-    };
-
-    return `${start.toLocaleDateString('es-ES', options)} - ${end.toLocaleDateString('es-ES', options)}`;
+    return `${format(first)} - ${format(last)}`;
 }
 
 /* =========================================
@@ -126,7 +157,12 @@ async function getCommanderData(name) {
         return {
 
             manaCost:
-                data.mana_cost || '',
+                data.mana_cost ||
+
+                data.card_faces?.[0]
+                    ?.mana_cost ||
+
+                '',
 
             image:
                 data.image_uris?.normal ||
@@ -209,7 +245,7 @@ async function getTop25() {
                 cards.forEach(
                     (card, index) => {
 
-                        if (index < 25) {
+                        if (results.length < 25) {
 
                             const name =
                                 card.querySelector(
@@ -356,7 +392,7 @@ function compareRanks(current, previous) {
         }
     });
 
-    return changes.slice(0, 10);
+    return changes.slice(0, 5);
 }
 
 /* =========================================
@@ -482,6 +518,77 @@ async function createChart(history) {
 }
 
 /* =========================================
+   BLOQUEAR CHAT
+========================================= */
+
+async function lockChannel(channel) {
+
+    try {
+
+        await channel.permissionOverwrites.edit(
+            channel.guild.roles.everyone,
+            {
+                SendMessages: false
+            }
+        );
+
+        console.log(
+            'Canal bloqueado correctamente'
+        );
+
+    } catch (err) {
+
+        console.error(
+            'Error bloqueando canal:',
+            err
+        );
+    }
+}
+
+/* =========================================
+   FOTO PERFIL + NOMBRE
+========================================= */
+
+async function setupBotProfile() {
+
+    try {
+
+        if (
+            fs.existsSync('./botedh.png')
+        ) {
+
+            const avatar =
+                fs.readFileSync(
+                    './botedh.png'
+                );
+
+            await client.user.setAvatar(
+                avatar
+            );
+
+            console.log(
+                'Avatar actualizado'
+            );
+        }
+
+        await client.user.setUsername(
+            BOT_NAME
+        );
+
+        console.log(
+            'Nombre actualizado'
+        );
+
+    } catch (err) {
+
+        console.error(
+            'Error configurando perfil:',
+            err.message
+        );
+    }
+}
+
+/* =========================================
    ENVIAR TOP
 ========================================= */
 
@@ -530,14 +637,14 @@ async function sendTop(channel) {
 
     saveHistory(history);
 
-    const weekText =
-        getWeekText();
+    const weekRange =
+        getWeekRange();
 
     /* =========================================
        EMBED PRINCIPAL
     ========================================= */
 
-    const mainEmbed =
+    const embed =
         new EmbedBuilder()
 
             .setTitle(
@@ -545,7 +652,7 @@ async function sendTop(channel) {
             )
 
             .setDescription(
-                `📅 Semana: ${weekText}`
+                `📅 Semana: ${weekRange}`
             )
 
             .setColor(0x8b5cf6)
@@ -558,28 +665,38 @@ async function sendTop(channel) {
 
             .setTimestamp();
 
-    const topText =
-        commanders
-            .map(c => {
+    /* =========================================
+       SOLO 24 FIELDS
+       (Discord máximo 25)
+    ========================================= */
 
-                const manaIcons =
-                    manaToIcons(
-                        c.manaCost
-                    );
+    const top24 =
+        commanders.slice(0, 24);
 
-                return `#${c.rank} ${manaIcons} **${c.name}** — 📚 ${c.decks} decks`;
+    top24.forEach(c => {
 
-            })
-            .join('\n');
+        const manaIcons =
+            manaToIcons(
+                c.manaCost
+            );
 
-    mainEmbed.addFields({
+        embed.addFields({
 
-        name: '🏆 Ranking',
+            name:
+                `#${c.rank} ${manaIcons} ${c.name}`,
 
-        value: topText
+            value:
+                `[🖼️ Ver carta](${c.image || 'https://cards.scryfall.io'} )\n📚 ${c.decks} decks`,
+
+            inline: false
+        });
     });
 
-    mainEmbed.addFields({
+    /* =========================================
+       TENDENCIAS = FIELD 25
+    ========================================= */
+
+    embed.addFields({
 
         name: '📈 Tendencias',
 
@@ -594,57 +711,48 @@ async function sendTop(channel) {
             history
         );
 
-    const chartAttachment =
+    const attachment =
         new AttachmentBuilder(
             chartPath
         );
 
-    await channel.send({
-
-        embeds: [mainEmbed],
-
-        files: [chartAttachment]
-    });
-
     /* =========================================
-       IMÁGENES CARTAS
+       ENVIAR IMÁGENES DE LAS 25 CARTAS
     ========================================= */
 
-    for (const commander of commanders) {
+    for (const c of commanders) {
 
-        if (!commander.image) {
-            continue;
+        if (c.image) {
+
+            const cardEmbed =
+                new EmbedBuilder()
+
+                    .setTitle(
+                        `#${c.rank} ${c.name}`
+                    )
+
+                    .setImage(c.image)
+
+                    .setColor(
+                        0x8b5cf6
+                    );
+
+            await channel.send({
+                embeds: [cardEmbed]
+            });
         }
-
-        const manaIcons =
-            manaToIcons(
-                commander.manaCost
-            );
-
-        const imageEmbed =
-            new EmbedBuilder()
-
-                .setTitle(
-                    `#${commander.rank} ${manaIcons} ${commander.name}`
-                )
-
-                .setDescription(
-                    `📚 ${commander.decks} decks`
-                )
-
-                .setImage(
-                    commander.image
-                )
-
-                .setColor(
-                    0x8b5cf6
-                );
-
-        await channel.send({
-
-            embeds: [imageEmbed]
-        });
     }
+
+    /* =========================================
+       ENVIAR EMBED PRINCIPAL
+    ========================================= */
+
+    await channel.send({
+
+        embeds: [embed],
+
+        files: [attachment]
+    });
 
     console.log(
         'Top enviado correctamente'
@@ -708,48 +816,7 @@ client.once(
             `Conectado como ${client.user.tag}`
         );
 
-        /* =========================================
-           CAMBIAR NOMBRE BOT
-        ========================================= */
-
-        try {
-
-            await client.user.setUsername(
-                'Top Commanders'
-            );
-
-        } catch (err) {
-
-            console.log(
-                'No se pudo cambiar el nombre automáticamente'
-            );
-        }
-
-        /* =========================================
-           CAMBIAR FOTO PERFIL
-        ========================================= */
-
-        try {
-
-            const avatar =
-                fs.readFileSync('./botedh.png');
-
-            await client.user.setAvatar(
-                avatar
-            );
-
-            console.log(
-                'Avatar actualizado'
-            );
-
-        } catch (err) {
-
-            console.log(
-                'No se pudo actualizar el avatar'
-            );
-
-            console.error(err);
-        }
+        await setupBotProfile();
 
         await registerCommands();
 
@@ -773,10 +840,12 @@ client.once(
             return;
         }
 
+        await lockChannel(channel);
+
         await sendTop(channel);
 
         /* =========================================
-           CADA LUNES 12:00
+           TODOS LOS LUNES A LAS 12
         ========================================= */
 
         cron.schedule(
@@ -819,9 +888,6 @@ client.on(
             const commanders =
                 await getTop25();
 
-            const weekText =
-                getWeekText();
-
             const embed =
                 new EmbedBuilder()
 
@@ -830,7 +896,7 @@ client.on(
                     )
 
                     .setDescription(
-                        `📅 Semana: ${weekText}`
+                        `📅 Semana: ${getWeekRange()}`
                     )
 
                     .setColor(
@@ -839,31 +905,65 @@ client.on(
 
                     .setTimestamp();
 
-            const text =
-                commanders
-                    .map(c => {
+            const top24 =
+                commanders.slice(0, 24);
 
-                        const manaIcons =
-                            manaToIcons(
-                                c.manaCost
-                            );
+            top24.forEach(c => {
 
-                        return `#${c.rank} ${manaIcons} **${c.name}**`;
+                const manaIcons =
+                    manaToIcons(
+                        c.manaCost
+                    );
 
-                    })
-                    .join('\n');
+                embed.addFields({
+
+                    name:
+                        `#${c.rank} ${manaIcons} ${c.name}`,
+
+                    value:
+                        `[🖼️ Ver carta](${c.image || 'https://cards.scryfall.io'})\n📚 ${c.decks} decks`,
+
+                    inline: false
+                });
+            });
 
             embed.addFields({
 
-                name: '🏆 Ranking',
+                name: '📈 Info',
 
-                value: text
+                value:
+                    'Usa las imágenes enviadas debajo para ver las cartas completas.'
             });
 
             await interaction.editReply({
 
                 embeds: [embed]
             });
+
+            for (const c of commanders) {
+
+                if (c.image) {
+
+                    const cardEmbed =
+                        new EmbedBuilder()
+
+                            .setTitle(
+                                `#${c.rank} ${c.name}`
+                            )
+
+                            .setImage(
+                                c.image
+                            )
+
+                            .setColor(
+                                0x8b5cf6
+                            );
+
+                    await interaction.followUp({
+                        embeds: [cardEmbed]
+                    });
+                }
+            }
         }
     }
 );

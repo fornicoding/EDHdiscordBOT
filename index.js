@@ -12,7 +12,6 @@ const {
     SlashCommandBuilder,
     REST,
     Routes,
-    ChannelType,
     PermissionsBitField
 } = require('discord.js');
 
@@ -71,25 +70,41 @@ function manaToIcons(manaCost) {
                     .replace('{', '')
                     .replace('}', '');
 
-            /* COLORES */
+            /* MONOCOLOR */
 
-            if (
-                clean === 'W' ||
-                clean === 'U' ||
-                clean === 'B' ||
-                clean === 'R' ||
-                clean === 'G'
-            ) {
+            if (COLOR_MAP[clean]) {
                 return COLOR_MAP[clean];
+            }
+
+            /* INCOLORO NUMÉRICO */
+
+            if (/^\d+$/.test(clean)) {
+                return `〔${clean}〕`;
             }
 
             /* INCOLORO */
 
-            if (!isNaN(clean)) {
-                return `〔${clean}〕`;
+            if (clean === 'C') {
+                return '◇';
             }
 
-            /* HÍBRIDOS / OTROS */
+            /* HÍBRIDOS */
+
+            if (clean.includes('/')) {
+                return `(${clean})`;
+            }
+
+            /* PHYREXIAN */
+
+            if (clean.includes('P')) {
+                return `(${clean})`;
+            }
+
+            /* X */
+
+            if (clean === 'X') {
+                return '〔X〕';
+            }
 
             return `(${clean})`;
 
@@ -98,7 +113,7 @@ function manaToIcons(manaCost) {
 }
 
 /* =========================================
-   FECHA SEMANA
+   FECHA
 ========================================= */
 
 function getWeekDate() {
@@ -222,12 +237,16 @@ async function getTop25() {
                                 ?.innerText
                                 ?.trim();
 
-                            const rank =
+                            const rankText =
                                 card.querySelector(
                                     '[class*="CardLabel_rank"]'
                                 )
                                 ?.innerText
                                 ?.trim();
+
+                            const rank =
+                                Number(rankText) ||
+                                (index + 1);
 
                             const decksMatch =
                                 card.innerText.match(
@@ -240,13 +259,11 @@ async function getTop25() {
                                     : 'Unknown';
 
                             if (
-                                name &&
-                                rank
+                                name
                             ) {
 
                                 results.push({
-                                    rank:
-                                        Number(rank),
+                                    rank,
                                     name,
                                     decks
                                 });
@@ -258,7 +275,7 @@ async function getTop25() {
                 return results;
             });
 
-        /* DATOS SCRYFALL */
+        /* SCRYFALL */
 
         for (const commander of data) {
 
@@ -515,23 +532,10 @@ async function lockChannel(channel) {
 }
 
 /* =========================================
-   FOTO PERFIL + NOMBRE BOT
+   AVATAR
 ========================================= */
 
 async function setupBotProfile() {
-
-    try {
-
-        await client.user.setUsername(
-            'Top Commanders'
-        );
-
-    } catch (err) {
-
-        console.log(
-            'No se pudo cambiar el nombre.'
-        );
-    }
 
     try {
 
@@ -607,6 +611,23 @@ async function sendTop(channel) {
         getWeekDate();
 
     /* =========================================
+       CHART
+    ========================================= */
+
+    const chartPath =
+        await createChart(
+            history
+        );
+
+    const attachment =
+        new AttachmentBuilder(
+            chartPath,
+            {
+                name: 'ranking.png'
+            }
+        );
+
+    /* =========================================
        EMBED PRINCIPAL
     ========================================= */
 
@@ -623,6 +644,10 @@ async function sendTop(channel) {
 
             .setColor(0x8b5cf6)
 
+            .setImage(
+                'attachment://ranking.png'
+            )
+
             .setFooter({
 
                 text:
@@ -630,10 +655,6 @@ async function sendTop(channel) {
             })
 
             .setTimestamp();
-
-    /* =========================================
-       SOLO 25 FIELDS MAX
-    ========================================= */
 
     commanders.forEach(c => {
 
@@ -655,7 +676,28 @@ async function sendTop(channel) {
     });
 
     /* =========================================
-       EMBEDS DE IMÁGENES
+       TENDENCIAS
+    ========================================= */
+
+    const trendEmbed =
+        new EmbedBuilder()
+
+            .setTitle(
+                '📈 Tendencias'
+            )
+
+            .setDescription(
+                changes.length
+                    ? changes.join('\n')
+                    : 'Sin cambios'
+            )
+
+            .setColor(
+                0x22c55e
+            );
+
+    /* =========================================
+       EMBEDS IMAGENES
     ========================================= */
 
     const imageEmbeds = [];
@@ -694,54 +736,36 @@ async function sendTop(channel) {
     });
 
     /* =========================================
-       TENDENCIAS
-    ========================================= */
-
-    const trendEmbed =
-        new EmbedBuilder()
-
-            .setTitle(
-                '📈 Tendencias'
-            )
-
-            .setDescription(
-                changes.length
-                    ? changes.join('\n')
-                    : 'Sin cambios'
-            )
-
-            .setColor(
-                0x22c55e
-            );
-
-    /* =========================================
-       CHART
-    ========================================= */
-
-    const chartPath =
-        await createChart(
-            history
-        );
-
-    const attachment =
-        new AttachmentBuilder(
-            chartPath
-        );
-
-    /* =========================================
-       ENVIAR
+       MENSAJE PRINCIPAL
     ========================================= */
 
     await channel.send({
 
         embeds: [
             mainEmbed,
-            trendEmbed,
-            ...imageEmbeds
+            trendEmbed
         ],
 
         files: [attachment]
     });
+
+    /* =========================================
+       ENVIAR IMAGENES EN BLOQUES
+    ========================================= */
+
+    for (
+        let i = 0;
+        i < imageEmbeds.length;
+        i += 8
+    ) {
+
+        const chunk =
+            imageEmbeds.slice(i, i + 8);
+
+        await channel.send({
+            embeds: chunk
+        });
+    }
 
     console.log(
         'Top enviado correctamente'
@@ -833,7 +857,7 @@ client.once(
 
         await sendTop(channel);
 
-        /* CADA LUNES A LAS 12 */
+        /* CADA LUNES 12:00 */
 
         cron.schedule(
             '0 12 * * 1',

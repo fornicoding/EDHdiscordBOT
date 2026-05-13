@@ -1,9 +1,7 @@
 require('dotenv').config();
 
 const fs = require('fs');
-
 const puppeteer = require('puppeteer');
-
 const cron = require('node-cron');
 
 const {
@@ -38,6 +36,53 @@ if (!fs.existsSync(HISTORY_FILE)) {
     fs.writeFileSync(HISTORY_FILE, JSON.stringify([]));
 }
 
+/* =========================
+   COLORES MTG
+========================= */
+
+const COLOR_MAP = {
+    W: '⚪',
+    U: '🔵',
+    B: '⚫',
+    R: '🔴',
+    G: '🟢'
+};
+
+function getColorIdentityText(colors) {
+
+    if (!colors || !colors.length) {
+        return '◻️';
+    }
+
+    return colors
+        .map(c => COLOR_MAP[c] || c)
+        .join('');
+}
+
+async function getCommanderColors(name) {
+
+    try {
+
+        const response = await fetch(
+            `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`
+        );
+
+        const data = await response.json();
+
+        return data.color_identity || [];
+
+    } catch (err) {
+
+        console.error(`Error obteniendo colores de ${name}`, err);
+
+        return [];
+    }
+}
+
+/* =========================
+   SCRAPER EDHREC
+========================= */
+
 async function getTop25() {
 
     const browser = await puppeteer.launch({
@@ -60,17 +105,24 @@ async function getTop25() {
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
         );
 
-        await page.goto('https://edhrec.com/commanders', {
-            waitUntil: 'domcontentloaded',
-            timeout: 0
-        });
+        await page.goto(
+            'https://edhrec.com/commanders',
+            {
+                waitUntil: 'domcontentloaded',
+                timeout: 0
+            }
+        );
 
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise(resolve =>
+            setTimeout(resolve, 5000)
+        );
 
         const data = await page.evaluate(() => {
 
             const cards =
-                document.querySelectorAll('[class*="Card_container"]');
+                document.querySelectorAll(
+                    '[class*="Card_container"]'
+                );
 
             const results = [];
 
@@ -79,17 +131,23 @@ async function getTop25() {
                 if (index < 25) {
 
                     const name =
-                        card.querySelector('[class*="Card_name"]')
+                        card.querySelector(
+                            '[class*="Card_name"]'
+                        )
                         ?.innerText
                         ?.trim();
 
                     const rank =
-                        card.querySelector('[class*="CardLabel_rank"]')
+                        card.querySelector(
+                            '[class*="CardLabel_rank"]'
+                        )
                         ?.innerText
                         ?.trim();
 
                     const decksMatch =
-                        card.innerText.match(/([\d,.]+)\s*decks/i);
+                        card.innerText.match(
+                            /([\d,.]+)\s*decks/i
+                        );
 
                     const decks =
                         decksMatch
@@ -115,11 +173,26 @@ async function getTop25() {
             return results;
         });
 
+        /* =========================
+           AÑADIR COLORES
+        ========================= */
+
+        for (const commander of data) {
+
+            commander.colors =
+                await getCommanderColors(
+                    commander.name
+                );
+        }
+
         return data;
 
     } catch (err) {
 
-        console.error('Error scraping EDHREC:', err);
+        console.error(
+            'Error scraping EDHREC:',
+            err
+        );
 
         return [];
 
@@ -128,6 +201,10 @@ async function getTop25() {
         await browser.close();
     }
 }
+
+/* =========================
+   HISTORIAL
+========================= */
 
 function loadHistory() {
 
@@ -150,6 +227,10 @@ function saveHistory(history) {
         JSON.stringify(history, null, 2)
     );
 }
+
+/* =========================
+   CAMBIOS DE POSICIÓN
+========================= */
 
 function compareRanks(current, previous) {
 
@@ -192,6 +273,10 @@ function compareRanks(current, previous) {
     return changes.slice(0, 10);
 }
 
+/* =========================
+   GRÁFICA
+========================= */
+
 async function createChart(history) {
 
     const width = 1000;
@@ -203,7 +288,8 @@ async function createChart(history) {
             height
         });
 
-    const latest = history.slice(-5);
+    const latest =
+        history.slice(-5);
 
     const commanders = {};
 
@@ -219,15 +305,16 @@ async function createChart(history) {
         });
     });
 
-    const datasets = Object.entries(commanders)
-        .slice(0, 5)
-        .map(([name, ranks]) => ({
+    const datasets =
+        Object.entries(commanders)
+            .slice(0, 5)
+            .map(([name, ranks]) => ({
 
-            label: name,
-            data: ranks,
-            fill: false
+                label: name,
+                data: ranks,
+                fill: false
 
-        }));
+            }));
 
     const configuration = {
 
@@ -258,7 +345,9 @@ async function createChart(history) {
     };
 
     const image =
-        await chartJSNodeCanvas.renderToBuffer(configuration);
+        await chartJSNodeCanvas.renderToBuffer(
+            configuration
+        );
 
     const path =
         './data/charts/ranking.png';
@@ -268,16 +357,24 @@ async function createChart(history) {
     return path;
 }
 
+/* =========================
+   ENVIAR TOP
+========================= */
+
 async function sendTop(channel) {
 
-    console.log('Obteniendo top commanders...');
+    console.log(
+        'Obteniendo top commanders...'
+    );
 
     const commanders =
         await getTop25();
 
     if (!commanders.length) {
 
-        console.log('No se obtuvieron commanders');
+        console.log(
+            'No se obtuvieron commanders'
+        );
 
         return;
     }
@@ -287,11 +384,16 @@ async function sendTop(channel) {
 
     const previous =
         history.length
-            ? history[history.length - 1].commanders
+            ? history[
+                history.length - 1
+            ].commanders
             : [];
 
     const changes =
-        compareRanks(commanders, previous);
+        compareRanks(
+            commanders,
+            previous
+        );
 
     history.push({
 
@@ -301,40 +403,52 @@ async function sendTop(channel) {
 
     saveHistory(history);
 
-    const description = commanders
-        .map(c => {
+    const description =
+        commanders
+            .map(c => {
 
-            return `#${c.rank} - **${c.name}** (${c.decks} decks)`;
+                const colors =
+                    getColorIdentityText(
+                        c.colors
+                    );
 
-        })
-        .join('\n');
+                return `#${c.rank} ${colors} - **${c.name}** (${c.decks} decks)`;
 
-    const embed = new EmbedBuilder()
-        .setTitle('🔥 Top 25 Commanders EDHREC')
-        .setDescription(description)
-        .setColor(0x8b5cf6)
-        .setThumbnail(commanders[0]?.image)
-        .addFields({
+            })
+            .join('\n');
 
-            name: '📈 Tendencias',
+    const embed =
+        new EmbedBuilder()
+            .setTitle(
+                '🔥 Top 25 Commanders EDHREC'
+            )
+            .setDescription(description)
+            .setColor(0x8b5cf6)
+            .setThumbnail(
+                commanders[0]?.image
+            )
+            .addFields({
 
-            value:
-                changes.length
-                    ? changes.join('\n')
-                    : 'Sin cambios'
+                name: '📈 Tendencias',
 
-        })
-        .setFooter({
+                value:
+                    changes.length
+                        ? changes.join('\n')
+                        : 'Sin cambios'
+            })
+            .setFooter({
 
-            text: 'Datos obtenidos desde EDHREC'
-        })
-        .setTimestamp();
+                text: 'Datos obtenidos desde EDHREC + Scryfall'
+            })
+            .setTimestamp();
 
     const chartPath =
         await createChart(history);
 
     const attachment =
-        new AttachmentBuilder(chartPath);
+        new AttachmentBuilder(
+            chartPath
+        );
 
     await channel.send({
 
@@ -342,24 +456,37 @@ async function sendTop(channel) {
         files: [attachment]
     });
 
-    console.log('Top enviado correctamente');
+    console.log(
+        'Top enviado correctamente'
+    );
 }
+
+/* =========================
+   SLASH COMMANDS
+========================= */
 
 async function registerCommands() {
 
     const commands = [
 
         new SlashCommandBuilder()
-            .setName('topcommanders')
+            .setName(
+                'topcommanders'
+            )
             .setDescription(
                 'Muestra el top 25 commanders'
             )
 
-    ].map(command => command.toJSON());
+    ].map(command =>
+        command.toJSON()
+    );
 
-    const rest = new REST({
-        version: '10'
-    }).setToken(process.env.TOKEN);
+    const rest =
+        new REST({
+            version: '10'
+        }).setToken(
+            process.env.TOKEN
+        );
 
     await rest.put(
 
@@ -372,72 +499,119 @@ async function registerCommands() {
         }
     );
 
-    console.log('Slash commands registrados');
+    console.log(
+        'Slash commands registrados'
+    );
 }
 
-client.once('ready', async () => {
+/* =========================
+   READY
+========================= */
 
-    console.log(
-        `Conectado como ${client.user.tag}`
-    );
+client.once(
+    'ready',
+    async () => {
 
-    await registerCommands();
-
-    const channel =
-        await client.channels.fetch(
-            process.env.CHANNEL
+        console.log(
+            `Conectado como ${client.user.tag}`
         );
 
-    await sendTop(channel);
+        await registerCommands();
 
-    cron.schedule(
-        '0 12 * * 1',
-        async () => {
+        let channel;
 
-            console.log(
-                'Ejecutando top semanal...'
+        try {
+
+            channel =
+                await client.channels.fetch(
+                    process.env.CHANNEL
+                );
+
+        } catch (err) {
+
+            console.error(
+                'ERROR ACCEDIENDO AL CANAL'
             );
 
-            await sendTop(channel);
+            console.error(err);
 
+            return;
         }
-    );
-});
 
-client.on('interactionCreate', async interaction => {
+        await sendTop(channel);
 
-    if (!interaction.isChatInputCommand()) {
-        return;
+        cron.schedule(
+            '0 12 * * 1',
+            async () => {
+
+                console.log(
+                    'Ejecutando top semanal...'
+                );
+
+                await sendTop(channel);
+
+            }
+        );
     }
+);
 
-    if (interaction.commandName === 'topcommanders') {
+/* =========================
+   SLASH INTERACTIONS
+========================= */
 
-        await interaction.deferReply();
+client.on(
+    'interactionCreate',
+    async interaction => {
 
-        const commanders =
-            await getTop25();
+        if (
+            !interaction.isChatInputCommand()
+        ) {
+            return;
+        }
 
-        const text = commanders
-            .map(c => {
+        if (
+            interaction.commandName ===
+            'topcommanders'
+        ) {
 
-                return `#${c.rank} - ${c.name}`;
+            await interaction.deferReply();
 
-            })
-            .join('\n');
+            const commanders =
+                await getTop25();
 
-        const embed = new EmbedBuilder()
-            .setTitle(
-                '🔥 Top 25 Commanders'
-            )
-            .setDescription(text)
-            .setColor(0x8b5cf6)
-            .setTimestamp();
+            const text =
+                commanders
+                    .map(c => {
 
-        await interaction.editReply({
+                        const colors =
+                            getColorIdentityText(
+                                c.colors
+                            );
 
-            embeds: [embed]
-        });
+                        return `#${c.rank} ${colors} - ${c.name}`;
+
+                    })
+                    .join('\n');
+
+            const embed =
+                new EmbedBuilder()
+                    .setTitle(
+                        '🔥 Top 25 Commanders'
+                    )
+                    .setDescription(text)
+                    .setColor(0x8b5cf6)
+                    .setTimestamp();
+
+            await interaction.editReply({
+
+                embeds: [embed]
+            });
+        }
     }
-});
+);
+
+/* =========================
+   LOGIN
+========================= */
 
 client.login(process.env.TOKEN);

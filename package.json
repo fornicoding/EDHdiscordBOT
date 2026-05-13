@@ -20,5 +20,8 @@
     "node-cron": "^4.2.1",
     "openai": "^6.37.0",
     "puppeteer": "^24.43.1"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

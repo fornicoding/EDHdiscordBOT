@@ -1,5 +1,3 @@
-// deploy-commands.js
-
 require('dotenv').config();
 
 const {
@@ -9,72 +7,98 @@ const {
 } = require('discord.js');
 
 /* =========================================
-   EXISTING COMMANDS
+   COLOR COMMANDS
+========================================= */
+
+const colorCommands = [
+
+    { name: 'topw', label: 'White (W)' },
+    { name: 'topu', label: 'Blue (U)' },
+    { name: 'topb', label: 'Black (B)' },
+    { name: 'topr', label: 'Red (R)' },
+    { name: 'topg', label: 'Green (G)' },
+    { name: 'topc', label: 'Colorless (C)' },
+
+    { name: 'topwu', label: 'Azorius (WU)' },
+    { name: 'topub', label: 'Dimir (UB)' },
+    { name: 'topbr', label: 'Rakdos (BR)' },
+    { name: 'toprg', label: 'Gruul (RG)' },
+    { name: 'topgw', label: 'Selesnya (GW)' },
+    { name: 'topwb', label: 'Orzhov (WB)' },
+    { name: 'topur', label: 'Izzet (UR)' },
+    { name: 'topbg', label: 'Golgari (BG)' },
+    { name: 'toprw', label: 'Boros (RW)' },
+    { name: 'topgu', label: 'Simic (GU)' },
+
+    { name: 'topwub', label: 'Esper (WUB)' },
+    { name: 'topubr', label: 'Grixis (UBR)' },
+    { name: 'topbrg', label: 'Jund (BRG)' },
+    { name: 'toprgw', label: 'Naya (RGW)' },
+    { name: 'topgwu', label: 'Bant (GWU)' },
+
+    { name: 'toprwb', label: 'Mardu (RWB)' },
+    { name: 'topurg', label: 'Temur (URG)' },
+    { name: 'topwbg', label: 'Abzan (WBG)' },
+    { name: 'topwur', label: 'Jeskai (WUR)' },
+    { name: 'topubg', label: 'Sultai (UBG)' },
+
+    { name: 'topwubr', label: 'Yore (WUBR)' },
+    { name: 'topubrg', label: 'Glint (UBRG)' },
+    { name: 'topwbrg', label: 'Dune (WBRG)' },
+    { name: 'topwurg', label: 'Ink (WURG)' },
+    { name: 'topwubg', label: 'Witch (WUBG)' },
+
+    { name: 'topwubrg', label: 'Five Color (WUBRG)' }
+];
+
+/* =========================================
+   COMMANDS
 ========================================= */
 
 const commands = [
 
     new SlashCommandBuilder()
-        .setName('topcommanders')
-        .setDescription('Muestra el top 20 commanders')
-        .toJSON()
 
+        .setName('topcommanders')
+
+        .setDescription(
+            'Top 20 commanders'
+        ),
+
+    new SlashCommandBuilder()
+
+        .setName('ask')
+
+        .setDescription(
+            'Ask the MTG AI'
+        )
+
+        .addStringOption(option =>
+
+            option
+                .setName('question')
+                .setDescription(
+                    'Your MTG question'
+                )
+                .setRequired(true)
+        )
 ];
 
 /* =========================================
-   ── NEW FEATURE: Top commanders by color ──
+   COLOR COMMANDS
 ========================================= */
-
-const colorCommands = [
-
-    { name: 'topw', path: 'w', label: 'White (W)' },
-    { name: 'topu', path: 'u', label: 'Blue (U)' },
-    { name: 'topb', path: 'b', label: 'Black (B)' },
-    { name: 'topr', path: 'r', label: 'Red (R)' },
-    { name: 'topg', path: 'g', label: 'Green (G)' },
-    { name: 'topc', path: 'colorless', label: 'Colorless (C)' },
-
-    { name: 'topwu', path: 'wu', label: 'Azorius (WU)' },
-    { name: 'topub', path: 'ub', label: 'Dimir (UB)' },
-    { name: 'topbr', path: 'br', label: 'Rakdos (BR)' },
-    { name: 'toprg', path: 'rg', label: 'Gruul (RG)' },
-    { name: 'topgw', path: 'gw', label: 'Selesnya (GW)' },
-    { name: 'topwb', path: 'wb', label: 'Orzhov (WB)' },
-    { name: 'topur', path: 'ur', label: 'Izzet (UR)' },
-    { name: 'topbg', path: 'bg', label: 'Golgari (BG)' },
-    { name: 'toprw', path: 'rw', label: 'Boros (RW)' },
-    { name: 'topgu', path: 'gu', label: 'Simic (GU)' },
-
-    { name: 'topwub', path: 'wub', label: 'Esper (WUB)' },
-    { name: 'topubr', path: 'ubr', label: 'Grixis (UBR)' },
-    { name: 'topbrg', path: 'brg', label: 'Jund (BRG)' },
-    { name: 'toprgw', path: 'rgw', label: 'Naya (RGW)' },
-    { name: 'topgwu', path: 'gwu', label: 'Bant (GWU)' },
-
-    { name: 'toprwb', path: 'rwb', label: 'Mardu (RWB)' },
-    { name: 'topurg', path: 'urg', label: 'Temur (URG)' },
-    { name: 'topwbg', path: 'wbg', label: 'Abzan (WBG)' },
-    { name: 'topwur', path: 'wur', label: 'Jeskai (WUR)' },
-    { name: 'topubg', path: 'ubg', label: 'Sultai (UBG)' },
-
-    { name: 'topwubr', path: 'wubr', label: 'Yore (WUBR)' },
-    { name: 'topubrg', path: 'ubrg', label: 'Glint (UBRG)' },
-    { name: 'topwbrg', path: 'wbrg', label: 'Dune (WBRG)' },
-    { name: 'topwurg', path: 'wurg', label: 'Ink (WURG)' },
-    { name: 'topwubg', path: 'wubg', label: 'Witch (WUBG)' },
-
-    { name: 'topwubrg', path: 'wubrg', label: 'Five Color (WUBRG)' }
-
-];
 
 colorCommands.forEach(c => {
 
     commands.push(
 
         new SlashCommandBuilder()
+
             .setName(c.name)
-            .setDescription(`Top 50 ${c.label} commanders`)
-            .toJSON()
+
+            .setDescription(
+                `Top 50 ${c.label} commanders`
+            )
     );
 });
 
@@ -82,16 +106,17 @@ colorCommands.forEach(c => {
    REGISTER
 ========================================= */
 
-const rest =
-    new REST({
-        version: '10'
-    }).setToken(process.env.TOKEN);
+const rest = new REST({
+    version: '10'
+}).setToken(process.env.TOKEN);
 
 (async () => {
 
     try {
 
-        console.log('Registrando slash commands...');
+        console.log(
+            'Registrando slash commands...'
+        );
 
         await rest.put(
 
@@ -100,15 +125,19 @@ const rest =
             ),
 
             {
-                body: commands
+                body: commands.map(
+                    c => c.toJSON()
+                )
             }
         );
 
-        console.log('Slash commands registrados.');
+        console.log(
+            'Slash commands registrados.'
+        );
 
-    } catch (err) {
+    } catch (error) {
 
-        console.error(err);
+        console.error(error);
     }
 
 })();

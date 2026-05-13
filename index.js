@@ -3,6 +3,7 @@
 require('dotenv').config();
 
 const fs = require('fs');
+const path = require('path');
 const puppeteer = require('puppeteer');
 const cron = require('node-cron');
 const axios = require('axios');
@@ -10,19 +11,16 @@ const cheerio = require('cheerio');
 const OpenAI = require('openai');
 
 const {
-
     Client,
     GatewayIntentBits,
     EmbedBuilder,
     AttachmentBuilder,
-    PermissionsBitField,
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
     SlashCommandBuilder,
     REST,
     Routes
-
 } = require('discord.js');
 
 const {
@@ -34,9 +32,7 @@ const {
 ========================================= */
 
 const client = new Client({
-
     intents: [
-
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent
@@ -48,35 +44,28 @@ const client = new Client({
 ========================================= */
 
 const openrouter = new OpenAI({
-
-    apiKey:
-        process.env.OPENROUTER_API_KEY,
-
-    baseURL:
-        'https://openrouter.ai/api/v1'
+    apiKey: process.env.OPENROUTER_API_KEY,
+    baseURL: 'https://openrouter.ai/api/v1'
 });
 
 /* =========================================
    FILES
 ========================================= */
 
-const HISTORY_FILE =
-    './data/history.json';
+const DATA_DIR = path.join(__dirname, 'data');
+const CHART_DIR = path.join(DATA_DIR, 'charts');
+const HISTORY_FILE = path.join(DATA_DIR, 'history.json');
 
-if (!fs.existsSync('./data')) {
-    fs.mkdirSync('./data');
+if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR);
 }
 
-if (!fs.existsSync('./data/charts')) {
-    fs.mkdirSync('./data/charts');
+if (!fs.existsSync(CHART_DIR)) {
+    fs.mkdirSync(CHART_DIR);
 }
 
 if (!fs.existsSync(HISTORY_FILE)) {
-
-    fs.writeFileSync(
-        HISTORY_FILE,
-        JSON.stringify([])
-    );
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify([]));
 }
 
 /* =========================================
@@ -138,7 +127,6 @@ const colorCommands = [
 ========================================= */
 
 const COLOR_MAP = {
-
     W: '⚪',
     U: '🔵',
     B: '⚫',
@@ -148,16 +136,11 @@ const COLOR_MAP = {
 
 function manaToIcons(manaCost) {
 
-    if (!manaCost) {
-        return '';
-    }
+    if (!manaCost) return '';
 
-    const matches =
-        manaCost.match(/\{(.*?)\}/g);
+    const matches = manaCost.match(/\{(.*?)\}/g);
 
-    if (!matches) {
-        return '';
-    }
+    if (!matches) return '';
 
     return matches.map(symbol => {
 
@@ -189,15 +172,14 @@ function manaToIcons(manaCost) {
 
 function getWeekDate() {
 
-    return new Date()
-        .toLocaleDateString(
-            'es-ES',
-            {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-            }
-        );
+    return new Date().toLocaleDateString(
+        'es-ES',
+        {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        }
+    );
 }
 
 /* =========================================
@@ -208,17 +190,13 @@ async function getCommanderData(name) {
 
     try {
 
-        const response =
-            await axios.get(
+        const response = await axios.get(
+            `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`
+        );
 
-                `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`
-            );
-
-        const data =
-            response.data;
+        const data = response.data;
 
         return {
-
             manaCost:
                 data.mana_cost ||
                 data.card_faces?.[0]?.mana_cost ||
@@ -230,10 +208,11 @@ async function getCommanderData(name) {
                 null
         };
 
-    } catch {
+    } catch (err) {
+
+        console.error(`Scryfall error (${name}):`, err.message);
 
         return {
-
             manaCost: '',
             image: null
         };
@@ -248,38 +227,21 @@ async function searchCard(cardName) {
 
     try {
 
-        const response =
-            await axios.get(
+        const response = await axios.get(
+            `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`
+        );
 
-                `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`
-            );
-
-        const card =
-            response.data;
+        const card = response.data;
 
         return {
-
-            name:
-                card.name,
-
-            manaCost:
-                card.mana_cost ||
-                '',
-
-            type:
-                card.type_line,
-
-            oracle:
-                card.oracle_text ||
-                '',
-
-            image:
-                card.image_uris?.normal ||
-                null
+            name: card.name,
+            manaCost: card.mana_cost || '',
+            type: card.type_line,
+            oracle: card.oracle_text || '',
+            image: card.image_uris?.normal || null
         };
 
     } catch {
-
         return null;
     }
 }
@@ -289,7 +251,6 @@ async function searchCard(cardName) {
 ========================================= */
 
 const MTG_SYSTEM_PROMPT = `
-
 You are an expert Magic: The Gathering Commander assistant.
 
 Specialize in:
@@ -306,9 +267,7 @@ Specialize in:
 - archetypes
 
 Never invent card text.
-
 Always explain interactions clearly.
-
 Use official MTG terminology.
 `;
 
@@ -326,11 +285,8 @@ async function askAI(question) {
             question.match(/"([^"]+)"/);
 
         if (quoted?.[1]) {
-
             cardData =
-                await searchCard(
-                    quoted[1]
-                );
+                await searchCard(quoted[1]);
         }
 
         let context = '';
@@ -338,7 +294,6 @@ async function askAI(question) {
         if (cardData) {
 
             context = `
-
 CARD DATA
 
 Name:
@@ -382,14 +337,9 @@ ${cardData.oracle}
             });
 
         return {
-
             text:
-                completion
-                    .choices[0]
-                    .message.content,
-
-            card:
-                cardData
+                completion.choices[0].message.content,
+            card: cardData
         };
 
     } catch (err) {
@@ -410,37 +360,38 @@ ${cardData.oracle}
 
 async function getTopCommanders() {
 
-    const browser =
-        await puppeteer.launch({
+    const browser = await puppeteer.launch({
 
-            headless: true,
+        headless: true,
 
-            executablePath:
-                process.env.PUPPETEER_EXECUTABLE_PATH ||
-                undefined,
+        executablePath:
+            process.env.PUPPETEER_EXECUTABLE_PATH ||
+            undefined,
 
-            args: [
+        args: [
 
-                '--no-sandbox',
-                '--disable-setuid-sandbox'
-            ]
-        });
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--disable-features=site-per-process'
+        ]
+    });
 
     try {
 
-        const page =
-            await browser.newPage();
+        const page = await browser.newPage();
 
         await page.goto(
             EDHREC_URL,
             {
-                waitUntil: 'domcontentloaded',
+                waitUntil: 'networkidle2',
                 timeout: 0
             }
         );
 
         await new Promise(resolve =>
-            setTimeout(resolve, 6000)
+            setTimeout(resolve, 5000)
         );
 
         const data =
@@ -455,45 +406,43 @@ async function getTopCommanders() {
 
                 cards.forEach((card, index) => {
 
-                    if (index < TOP_LIMIT) {
+                    if (index >= TOP_LIMIT) return;
 
-                        const name =
-                            card.querySelector(
-                                '[class*="Card_name"]'
-                            )
-                            ?.innerText
-                            ?.trim();
+                    const name =
+                        card.querySelector(
+                            '[class*="Card_name"]'
+                        )
+                        ?.innerText
+                        ?.trim();
 
-                        const rankText =
-                            card.querySelector(
-                                '[class*="CardLabel_rank"]'
-                            )
-                            ?.innerText
-                            ?.trim();
+                    const rankText =
+                        card.querySelector(
+                            '[class*="CardLabel_rank"]'
+                        )
+                        ?.innerText
+                        ?.trim();
 
-                        const rank =
-                            Number(rankText) ||
-                            (index + 1);
+                    const rank =
+                        Number(rankText) ||
+                        (index + 1);
 
-                        const decksMatch =
-                            card.innerText.match(
-                                /([\d,.]+)\s*decks/i
-                            );
+                    const decksMatch =
+                        card.innerText.match(
+                            /([\d,.]+)\s*decks/i
+                        );
 
-                        const decks =
-                            decksMatch
-                                ? decksMatch[1]
-                                : 'Unknown';
+                    const decks =
+                        decksMatch
+                            ? decksMatch[1]
+                            : 'Unknown';
 
-                        if (name) {
+                    if (name) {
 
-                            results.push({
-
-                                rank,
-                                name,
-                                decks
-                            });
-                        }
+                        results.push({
+                            rank,
+                            name,
+                            decks
+                        });
                     }
                 });
 
@@ -516,6 +465,15 @@ async function getTopCommanders() {
         }
 
         return data;
+
+    } catch (err) {
+
+        console.error(
+            'EDHREC SCRAPER ERROR:',
+            err.message
+        );
+
+        return [];
 
     } finally {
 
@@ -551,6 +509,14 @@ async function fetchTopCommanders(
         const nextData =
             $('#__NEXT_DATA__').html();
 
+        if (!nextData) {
+
+            return interaction.editReply({
+                content:
+                    '❌ No se pudieron obtener datos de EDHREC.'
+            });
+        }
+
         const json =
             JSON.parse(nextData);
 
@@ -571,13 +537,10 @@ async function fetchTopCommanders(
 
             const embed =
                 new EmbedBuilder()
-
                     .setTitle(
                         `🔥 Top 50 ${colorLabel}`
                     )
-
                     .setColor(0x8b5cf6)
-
                     .setFooter({
                         text:
                             `Página ${Math.floor(i / 10) + 1}/5`
@@ -585,8 +548,7 @@ async function fetchTopCommanders(
 
             for (let j = 0; j < chunk.length; j++) {
 
-                const c =
-                    chunk[j];
+                const c = chunk[j];
 
                 const scryfall =
                     await getCommanderData(
@@ -599,21 +561,14 @@ async function fetchTopCommanders(
                     );
 
                 embed.addFields({
-
                     name:
                         `#${i + j + 1} ${manaIcons} ${c.name}`,
-
                     value:
                         `📚 ${c.num_decks || 'Unknown'} decks`,
-
                     inline: false
                 });
 
-                if (
-                    j === 0 &&
-                    scryfall.image
-                ) {
-
+                if (j === 0 && scryfall.image) {
                     embed.setThumbnail(
                         scryfall.image
                     );
@@ -627,7 +582,6 @@ async function fetchTopCommanders(
 
         const row =
             new ActionRowBuilder()
-
                 .addComponents(
 
                     new ButtonBuilder()
@@ -644,10 +598,7 @@ async function fetchTopCommanders(
         const message =
             await interaction.editReply({
 
-                embeds: [
-                    embeds[currentPage]
-                ],
-
+                embeds: [embeds[currentPage]],
                 components: [row]
             });
 
@@ -661,57 +612,47 @@ async function fetchTopCommanders(
                     interaction.user.id
             });
 
-        collector.on(
-            'collect',
-            async i => {
+        collector.on('collect', async i => {
 
-                if (
-                    i.customId === 'prev'
-                ) {
+            if (i.customId === 'prev') {
 
-                    currentPage--;
+                currentPage--;
 
-                    if (currentPage < 0) {
-                        currentPage =
-                            embeds.length - 1;
-                    }
+                if (currentPage < 0) {
+                    currentPage =
+                        embeds.length - 1;
                 }
-
-                if (
-                    i.customId === 'next'
-                ) {
-
-                    currentPage++;
-
-                    if (
-                        currentPage >=
-                        embeds.length
-                    ) {
-
-                        currentPage = 0;
-                    }
-                }
-
-                await i.update({
-
-                    embeds: [
-                        embeds[currentPage]
-                    ],
-
-                    components: [row]
-                });
             }
-        );
+
+            if (i.customId === 'next') {
+
+                currentPage++;
+
+                if (
+                    currentPage >=
+                    embeds.length
+                ) {
+                    currentPage = 0;
+                }
+            }
+
+            await i.update({
+                embeds: [embeds[currentPage]],
+                components: [row]
+            });
+        });
 
     } catch (err) {
 
         console.error(err);
 
-        await interaction.editReply({
+        if (interaction.deferred || interaction.replied) {
 
-            content:
-                '❌ Error obteniendo commanders.'
-        });
+            await interaction.editReply({
+                content:
+                    '❌ Error obteniendo commanders.'
+            });
+        }
     }
 }
 
@@ -736,9 +677,7 @@ function loadHistory() {
 function saveHistory(history) {
 
     fs.writeFileSync(
-
         HISTORY_FILE,
-
         JSON.stringify(
             history,
             null,
@@ -783,36 +722,60 @@ async function createChart(history) {
         Object.entries(commanders)
             .slice(0, 5)
             .map(([name, ranks]) => ({
-
                 label: name,
                 data: ranks,
                 fill: false
             }));
 
     const image =
-        await chartJSNodeCanvas
-            .renderToBuffer({
+        await chartJSNodeCanvas.renderToBuffer({
 
-                type: 'line',
+            type: 'line',
 
-                data: {
+            data: {
+                labels:
+                    latest.map(
+                        (_, i) =>
+                            `Semana ${i + 1}`
+                    ),
 
-                    labels:
-                        latest.map(
-                            (_, i) =>
-                                `Semana ${i + 1}`
-                        ),
+                datasets
+            },
 
-                    datasets
+            options: {
+                responsive: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: 'white'
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        reverse: true,
+                        ticks: {
+                            color: 'white'
+                        }
+                    },
+                    x: {
+                        ticks: {
+                            color: 'white'
+                        }
+                    }
                 }
-            });
+            }
+        });
 
-    const path =
-        './data/charts/ranking.png';
+    const chartPath =
+        path.join(
+            CHART_DIR,
+            'ranking.png'
+        );
 
-    fs.writeFileSync(path, image);
+    fs.writeFileSync(chartPath, image);
 
-    return path;
+    return chartPath;
 }
 
 /* =========================================
@@ -826,24 +789,24 @@ async function sendTop(channel) {
         const commanders =
             await getTopCommanders();
 
+        if (!commanders.length) {
+            return;
+        }
+
         const history =
             loadHistory();
 
         history.push({
-
             date:
                 new Date()
                     .toISOString(),
-
             commanders
         });
 
         saveHistory(history);
 
         const chartPath =
-            await createChart(
-                history
-            );
+            await createChart(history);
 
         const attachment =
             new AttachmentBuilder(
@@ -855,25 +818,19 @@ async function sendTop(channel) {
 
         const mainEmbed =
             new EmbedBuilder()
-
                 .setTitle(
                     `🔥 Top ${TOP_LIMIT} Commanders - ${getWeekDate()}`
                 )
-
                 .setDescription(
                     `🔗 ${EDHREC_URL}`
                 )
-
                 .setImage(
                     'attachment://ranking.png'
                 )
-
                 .setColor(0x8b5cf6);
 
         await channel.send({
-
             embeds: [mainEmbed],
-
             files: [attachment]
         });
 
@@ -886,18 +843,13 @@ async function sendTop(channel) {
 
             const embed =
                 new EmbedBuilder()
-
                     .setTitle(
                         `#${c.rank} ${manaIcons} ${c.name}`
                     )
-
                     .setDescription(
                         `📚 ${c.decks} decks`
                     )
-
-                    .setColor(
-                        0x8b5cf6
-                    );
+                    .setColor(0x8b5cf6);
 
             if (c.image) {
                 embed.setImage(c.image);
@@ -909,7 +861,6 @@ async function sendTop(channel) {
         }
 
         await channel.send({
-
             content:
                 `🔗 Ver ranking completo:\n${EDHREC_URL}`
         });
@@ -932,23 +883,17 @@ async function registerCommands() {
     const commands = [
 
         new SlashCommandBuilder()
-
             .setName('topcommanders')
-
             .setDescription(
                 'Top 20 commanders'
             ),
 
         new SlashCommandBuilder()
-
             .setName('ask')
-
             .setDescription(
                 'Ask the MTG AI'
             )
-
             .addStringOption(option =>
-
                 option
                     .setName('question')
                     .setDescription(
@@ -963,9 +908,7 @@ async function registerCommands() {
         commands.push(
 
             new SlashCommandBuilder()
-
                 .setName(c.name)
-
                 .setDescription(
                     `Top 50 ${c.label} commanders`
                 )
@@ -994,7 +937,7 @@ async function registerCommands() {
     );
 
     console.log(
-        'Slash commands registrados'
+        '✅ Slash commands registrados'
     );
 }
 
@@ -1003,11 +946,11 @@ async function registerCommands() {
 ========================================= */
 
 client.once(
-    'clientReady',
+    'ready',
     async () => {
 
         console.log(
-            `Conectado como ${client.user.tag}`
+            `✅ Conectado como ${client.user.tag}`
         );
 
         await registerCommands();
@@ -1021,20 +964,27 @@ client.once(
                     process.env.CHANNEL
                 );
 
-        } catch {
+        } catch (err) {
+
+            console.error(
+                'Error fetching channel:',
+                err.message
+            );
 
             return;
         }
 
-        if (!channel) {
-            return;
-        }
+        if (!channel) return;
 
         await sendTop(channel);
 
         cron.schedule(
             '0 12 * * 1',
             async () => {
+
+                console.log(
+                    '⏰ Enviando top semanal...'
+                );
 
                 await sendTop(channel);
             }
@@ -1063,9 +1013,7 @@ client.on(
            /ASK
         ========================================= */
 
-        if (
-            commandName === 'ask'
-        ) {
+        if (commandName === 'ask') {
 
             await interaction.deferReply({
                 ephemeral: true
@@ -1082,7 +1030,6 @@ client.on(
             if (!ai) {
 
                 return interaction.editReply({
-
                     content:
                         '❌ Error contacting AI.'
                 });
@@ -1090,31 +1037,21 @@ client.on(
 
             const embed =
                 new EmbedBuilder()
-
                     .setTitle(
                         '🧠 MTG Commander AI'
                     )
-
                     .setDescription(
-                        ai.text
-                            .slice(0, 4000)
+                        ai.text.slice(0, 4000)
                     )
+                    .setColor(0x8b5cf6);
 
-                    .setColor(
-                        0x8b5cf6
-                    );
-
-            if (
-                ai.card?.image
-            ) {
-
+            if (ai.card?.image) {
                 embed.setThumbnail(
                     ai.card.image
                 );
             }
 
             return interaction.editReply({
-
                 embeds: [embed]
             });
         }
@@ -1135,16 +1072,20 @@ client.on(
             const commanders =
                 await getTopCommanders();
 
+            if (!commanders.length) {
+
+                return interaction.editReply({
+                    content:
+                        '❌ No se pudieron obtener commanders.'
+                });
+            }
+
             const embed =
                 new EmbedBuilder()
-
                     .setTitle(
                         `🔥 Top ${TOP_LIMIT} Commanders`
                     )
-
-                    .setColor(
-                        0x8b5cf6
-                    );
+                    .setColor(0x8b5cf6);
 
             commanders.forEach(c => {
 
@@ -1154,19 +1095,15 @@ client.on(
                     );
 
                 embed.addFields({
-
                     name:
                         `#${c.rank} ${manaIcons} ${c.name}`,
-
                     value:
                         `📚 ${c.decks} decks`,
-
                     inline: false
                 });
             });
 
             return interaction.editReply({
-
                 embeds: [embed]
             });
         }
@@ -1185,11 +1122,8 @@ client.on(
         if (colorCmd) {
 
             return fetchTopCommanders(
-
                 interaction,
-
                 colorCmd.path,
-
                 colorCmd.label
             );
         }

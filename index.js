@@ -12,8 +12,7 @@ const {
     SlashCommandBuilder,
     REST,
     Routes,
-    PermissionsBitField,
-    ChannelType
+    PermissionsBitField
 } = require('discord.js');
 
 const {
@@ -37,6 +36,15 @@ if (!fs.existsSync('./data/charts')) {
 if (!fs.existsSync(HISTORY_FILE)) {
     fs.writeFileSync(HISTORY_FILE, JSON.stringify([]));
 }
+
+/* =========================================
+   CONFIG
+========================================= */
+
+const TOP_LIMIT = 20;
+
+const EDHREC_URL =
+    'https://edhrec.com/commanders';
 
 /* =========================================
    COLORES MANA
@@ -161,7 +169,7 @@ async function getCommanderData(name) {
    SCRAPER EDHREC
 ========================================= */
 
-async function getTop25() {
+async function getTopCommanders() {
 
     const browser =
         await puppeteer.launch({
@@ -188,7 +196,7 @@ async function getTop25() {
         );
 
         await page.goto(
-            'https://edhrec.com/commanders',
+            EDHREC_URL,
             {
                 waitUntil: 'domcontentloaded',
                 timeout: 0
@@ -200,7 +208,7 @@ async function getTop25() {
         );
 
         const data =
-            await page.evaluate(() => {
+            await page.evaluate((TOP_LIMIT) => {
 
                 const cards =
                     document.querySelectorAll(
@@ -212,7 +220,7 @@ async function getTop25() {
                 cards.forEach(
                     (card, index) => {
 
-                        if (index < 25) {
+                        if (index < TOP_LIMIT) {
 
                             const name =
                                 card.querySelector(
@@ -255,7 +263,8 @@ async function getTop25() {
                 );
 
                 return results;
-            });
+
+            }, TOP_LIMIT);
 
         for (const commander of data) {
 
@@ -570,7 +579,7 @@ async function sendTop(channel) {
         );
 
         const commanders =
-            await getTop25();
+            await getTopCommanders();
 
         if (!commanders.length) {
 
@@ -632,11 +641,11 @@ async function sendTop(channel) {
             new EmbedBuilder()
 
                 .setTitle(
-                    `🔥 Top 25 Commanders - ${weekDate}`
+                    `🔥 Top ${TOP_LIMIT} Commanders - ${weekDate}`
                 )
 
                 .setDescription(
-                    'Ranking semanal de commanders más populares en EDHREC'
+                    `Ranking semanal de commanders más populares en EDHREC\n\n🔗 Ver ranking completo:\n${EDHREC_URL}`
                 )
 
                 .setColor(0x8b5cf6)
@@ -686,7 +695,7 @@ async function sendTop(channel) {
         });
 
         /* =========================================
-           COMANDANTES CON FOTO JUSTO DEBAJO
+           COMANDANTES
         ========================================= */
 
         for (const c of commanders) {
@@ -723,6 +732,15 @@ async function sendTop(channel) {
             });
         }
 
+        /* =========================================
+           LINK FINAL
+        ========================================= */
+
+        await channel.send({
+            content:
+                `🔗 Ver el ranking completo de commanders:\n${EDHREC_URL}`
+        });
+
         console.log(
             'Top enviado correctamente'
         );
@@ -751,7 +769,7 @@ async function registerCommands() {
             )
 
             .setDescription(
-                'Muestra el top 25 commanders'
+                `Muestra el top ${TOP_LIMIT} commanders`
             )
 
     ].map(command =>
@@ -825,7 +843,7 @@ client.once(
 
         await sendTop(channel);
 
-        /* CADA LUNES A LAS 12 */
+        /* CADA LUNES 12:00 */
 
         cron.schedule(
             '0 12 * * 1',
@@ -865,7 +883,7 @@ client.on(
             await interaction.deferReply();
 
             const commanders =
-                await getTop25();
+                await getTopCommanders();
 
             if (!commanders.length) {
 
@@ -880,7 +898,7 @@ client.on(
                 new EmbedBuilder()
 
                     .setTitle(
-                        '🔥 Top 25 Commanders'
+                        `🔥 Top ${TOP_LIMIT} Commanders`
                     )
 
                     .setDescription(
@@ -894,7 +912,9 @@ client.on(
 
                                 return `#${c.rank} ${manaIcons} ${c.name} — 📚 ${c.decks} decks`;
                             })
-                            .join('\n')
+                            .join('\n') +
+
+                            `\n\n🔗 Ranking completo:\n${EDHREC_URL}`
                     )
 
                     .setColor(

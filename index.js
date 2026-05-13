@@ -36,9 +36,9 @@ if (!fs.existsSync(HISTORY_FILE)) {
     fs.writeFileSync(HISTORY_FILE, JSON.stringify([]));
 }
 
-/* =========================
-   COLORES MTG
-========================= */
+/* =========================================
+   ICONOS COLORES MANA
+========================================= */
 
 const COLOR_MAP = {
     W: '⚪',
@@ -48,18 +48,55 @@ const COLOR_MAP = {
     G: '🟢'
 };
 
-function getColorIdentityText(colors) {
+function manaToIcons(manaCost) {
 
-    if (!colors || !colors.length) {
-        return '◻️';
+    if (!manaCost) {
+        return '';
     }
 
-    return colors
-        .map(c => COLOR_MAP[c] || c)
+    const matches =
+        manaCost.match(/\{(.*?)\}/g);
+
+    if (!matches) {
+        return '';
+    }
+
+    return matches
+        .map(symbol => {
+
+            const clean =
+                symbol
+                    .replace('{', '')
+                    .replace('}', '');
+
+            if (
+                clean === 'W' ||
+                clean === 'U' ||
+                clean === 'B' ||
+                clean === 'R' ||
+                clean === 'G'
+            ) {
+
+                return COLOR_MAP[clean];
+            }
+
+            /* COSTE INCOLORO */
+
+            if (!isNaN(clean)) {
+                return `〔${clean}〕`;
+            }
+
+            return `(${clean})`;
+
+        })
         .join('');
 }
 
-async function getCommanderColors(name) {
+/* =========================================
+   SCRYFALL
+========================================= */
+
+async function getCommanderData(name) {
 
     try {
 
@@ -69,40 +106,62 @@ async function getCommanderColors(name) {
 
         const data = await response.json();
 
-        return data.color_identity || [];
+        return {
+
+            manaCost:
+                data.mana_cost || '',
+
+            image:
+                data.image_uris?.normal ||
+
+                data.card_faces?.[0]
+                    ?.image_uris?.normal ||
+
+                null
+        };
 
     } catch (err) {
 
-        console.error(`Error obteniendo colores de ${name}`, err);
+        console.error(
+            `Error obteniendo datos de ${name}`,
+            err
+        );
 
-        return [];
+        return {
+            manaCost: '',
+            image: null
+        };
     }
 }
 
-/* =========================
+/* =========================================
    SCRAPER EDHREC
-========================= */
+========================================= */
 
 async function getTop25() {
 
-    const browser = await puppeteer.launch({
-        headless: true,
+    const browser =
+        await puppeteer.launch({
 
-        executablePath:
-            process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+            headless: true,
 
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox'
-        ]
-    });
+            executablePath:
+                process.env.PUPPETEER_EXECUTABLE_PATH ||
+                undefined,
+
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox'
+            ]
+        });
 
     try {
 
-        const page = await browser.newPage();
+        const page =
+            await browser.newPage();
 
         await page.setUserAgent(
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+            'Mozilla/5.0'
         );
 
         await page.goto(
@@ -117,72 +176,80 @@ async function getTop25() {
             setTimeout(resolve, 5000)
         );
 
-        const data = await page.evaluate(() => {
+        const data =
+            await page.evaluate(() => {
 
-            const cards =
-                document.querySelectorAll(
-                    '[class*="Card_container"]'
+                const cards =
+                    document.querySelectorAll(
+                        '[class*="Card_container"]'
+                    );
+
+                const results = [];
+
+                cards.forEach(
+                    (card, index) => {
+
+                        if (index < 25) {
+
+                            const name =
+                                card.querySelector(
+                                    '[class*="Card_name"]'
+                                )
+                                ?.innerText
+                                ?.trim();
+
+                            const rank =
+                                card.querySelector(
+                                    '[class*="CardLabel_rank"]'
+                                )
+                                ?.innerText
+                                ?.trim();
+
+                            const decksMatch =
+                                card.innerText.match(
+                                    /([\d,.]+)\s*decks/i
+                                );
+
+                            const decks =
+                                decksMatch
+                                    ? decksMatch[1]
+                                    : 'Unknown';
+
+                            if (
+                                name &&
+                                rank
+                            ) {
+
+                                results.push({
+                                    rank:
+                                        Number(rank),
+                                    name,
+                                    decks
+                                });
+                            }
+                        }
+                    }
                 );
 
-            const results = [];
-
-            cards.forEach((card, index) => {
-
-                if (index < 25) {
-
-                    const name =
-                        card.querySelector(
-                            '[class*="Card_name"]'
-                        )
-                        ?.innerText
-                        ?.trim();
-
-                    const rank =
-                        card.querySelector(
-                            '[class*="CardLabel_rank"]'
-                        )
-                        ?.innerText
-                        ?.trim();
-
-                    const decksMatch =
-                        card.innerText.match(
-                            /([\d,.]+)\s*decks/i
-                        );
-
-                    const decks =
-                        decksMatch
-                            ? decksMatch[1]
-                            : 'Unknown';
-
-                    const image =
-                        card.querySelector('img')
-                        ?.src;
-
-                    if (name && rank) {
-
-                        results.push({
-                            rank: Number(rank),
-                            name,
-                            decks,
-                            image
-                        });
-                    }
-                }
+                return results;
             });
 
-            return results;
-        });
-
-        /* =========================
-           AÑADIR COLORES
-        ========================= */
+        /* =========================================
+           DATOS SCRYFALL
+        ========================================= */
 
         for (const commander of data) {
 
-            commander.colors =
-                await getCommanderColors(
+            const scryfall =
+                await getCommanderData(
                     commander.name
                 );
+
+            commander.manaCost =
+                scryfall.manaCost;
+
+            commander.image =
+                scryfall.image;
         }
 
         return data;
@@ -202,9 +269,9 @@ async function getTop25() {
     }
 }
 
-/* =========================
+/* =========================================
    HISTORIAL
-========================= */
+========================================= */
 
 function loadHistory() {
 
@@ -228,9 +295,9 @@ function saveHistory(history) {
     );
 }
 
-/* =========================
-   CAMBIOS DE POSICIÓN
-========================= */
+/* =========================================
+   CAMBIOS RANKING
+========================================= */
 
 function compareRanks(current, previous) {
 
@@ -240,7 +307,9 @@ function compareRanks(current, previous) {
 
         const old =
             previous.find(
-                c => c.name === commander.name
+                c =>
+                    c.name ===
+                    commander.name
             );
 
         if (!old) {
@@ -253,19 +322,20 @@ function compareRanks(current, previous) {
         }
 
         const diff =
-            old.rank - commander.rank;
+            old.rank -
+            commander.rank;
 
         if (diff > 0) {
 
             changes.push(
-                `⬆️ ${commander.name} sube ${diff} puestos`
+                `⬆️ ${commander.name} sube ${diff}`
             );
         }
 
         else if (diff < 0) {
 
             changes.push(
-                `⬇️ ${commander.name} baja ${Math.abs(diff)} puestos`
+                `⬇️ ${commander.name} baja ${Math.abs(diff)}`
             );
         }
     });
@@ -273,13 +343,13 @@ function compareRanks(current, previous) {
     return changes.slice(0, 10);
 }
 
-/* =========================
-   GRÁFICA
-========================= */
+/* =========================================
+   CHART
+========================================= */
 
 async function createChart(history) {
 
-    const width = 1000;
+    const width = 1200;
     const height = 500;
 
     const chartJSNodeCanvas =
@@ -297,11 +367,15 @@ async function createChart(history) {
 
         week.commanders.forEach(c => {
 
-            if (!commanders[c.name]) {
+            if (
+                !commanders[c.name]
+            ) {
+
                 commanders[c.name] = [];
             }
 
-            commanders[c.name].push(c.rank);
+            commanders[c.name]
+                .push(c.rank);
         });
     });
 
@@ -312,7 +386,8 @@ async function createChart(history) {
 
                 label: name,
                 data: ranks,
-                fill: false
+                fill: false,
+                tension: 0.3
 
             }));
 
@@ -322,9 +397,11 @@ async function createChart(history) {
 
         data: {
 
-            labels: latest.map(
-                (_, i) => `Week ${i + 1}`
-            ),
+            labels:
+                latest.map(
+                    (_, i) =>
+                        `Week ${i + 1}`
+                ),
 
             datasets
         },
@@ -333,21 +410,51 @@ async function createChart(history) {
 
             responsive: false,
 
+            plugins: {
+
+                legend: {
+                    labels: {
+                        color: 'white'
+                    }
+                }
+            },
+
             scales: {
 
                 y: {
 
                     reverse: true,
-                    beginAtZero: false
+
+                    ticks: {
+                        color: 'white'
+                    },
+
+                    grid: {
+                        color:
+                            'rgba(255,255,255,0.1)'
+                    }
+                },
+
+                x: {
+
+                    ticks: {
+                        color: 'white'
+                    },
+
+                    grid: {
+                        color:
+                            'rgba(255,255,255,0.1)'
+                    }
                 }
             }
         }
     };
 
     const image =
-        await chartJSNodeCanvas.renderToBuffer(
-            configuration
-        );
+        await chartJSNodeCanvas
+            .renderToBuffer(
+                configuration
+            );
 
     const path =
         './data/charts/ranking.png';
@@ -357,9 +464,9 @@ async function createChart(history) {
     return path;
 }
 
-/* =========================
+/* =========================================
    ENVIAR TOP
-========================= */
+========================================= */
 
 async function sendTop(channel) {
 
@@ -397,53 +504,81 @@ async function sendTop(channel) {
 
     history.push({
 
-        date: new Date().toISOString(),
+        date:
+            new Date()
+                .toISOString(),
+
         commanders
     });
 
     saveHistory(history);
 
-    const description =
-        commanders
-            .map(c => {
-
-                const colors =
-                    getColorIdentityText(
-                        c.colors
-                    );
-
-                return `#${c.rank} ${colors} - **${c.name}** (${c.decks} decks)`;
-
-            })
-            .join('\n');
+    /* =========================================
+       EMBED PRINCIPAL
+    ========================================= */
 
     const embed =
         new EmbedBuilder()
+
             .setTitle(
                 '🔥 Top 25 Commanders EDHREC'
             )
-            .setDescription(description)
+
             .setColor(0x8b5cf6)
-            .setThumbnail(
-                commanders[0]?.image
-            )
-            .addFields({
 
-                name: '📈 Tendencias',
-
-                value:
-                    changes.length
-                        ? changes.join('\n')
-                        : 'Sin cambios'
-            })
             .setFooter({
 
-                text: 'Datos obtenidos desde EDHREC + Scryfall'
+                text:
+                    'Datos obtenidos desde EDHREC + Scryfall'
             })
+
             .setTimestamp();
 
+    /* =========================================
+       AÑADIR COMMANDERS
+    ========================================= */
+
+    commanders.forEach(c => {
+
+        const manaIcons =
+            manaToIcons(
+                c.manaCost
+            );
+
+        embed.addFields({
+
+            name:
+                `#${c.rank} ${manaIcons} ${c.name}`,
+
+            value:
+                `📚 ${c.decks} decks\n🖼️ ${c.image}`,
+
+            inline: false
+        });
+    });
+
+    /* =========================================
+       TENDENCIAS
+    ========================================= */
+
+    embed.addFields({
+
+        name: '📈 Tendencias',
+
+        value:
+            changes.length
+                ? changes.join('\n')
+                : 'Sin cambios'
+    });
+
+    /* =========================================
+       CHART
+    ========================================= */
+
     const chartPath =
-        await createChart(history);
+        await createChart(
+            history
+        );
 
     const attachment =
         new AttachmentBuilder(
@@ -453,6 +588,7 @@ async function sendTop(channel) {
     await channel.send({
 
         embeds: [embed],
+
         files: [attachment]
     });
 
@@ -461,18 +597,20 @@ async function sendTop(channel) {
     );
 }
 
-/* =========================
+/* =========================================
    SLASH COMMANDS
-========================= */
+========================================= */
 
 async function registerCommands() {
 
     const commands = [
 
         new SlashCommandBuilder()
+
             .setName(
                 'topcommanders'
             )
+
             .setDescription(
                 'Muestra el top 25 commanders'
             )
@@ -504,12 +642,12 @@ async function registerCommands() {
     );
 }
 
-/* =========================
+/* =========================================
    READY
-========================= */
+========================================= */
 
 client.once(
-    'ready',
+    'clientReady',
     async () => {
 
         console.log(
@@ -548,16 +686,17 @@ client.once(
                     'Ejecutando top semanal...'
                 );
 
-                await sendTop(channel);
-
+                await sendTop(
+                    channel
+                );
             }
         );
     }
 );
 
-/* =========================
-   SLASH INTERACTIONS
-========================= */
+/* =========================================
+   SLASH INTERACTION
+========================================= */
 
 client.on(
     'interactionCreate',
@@ -579,28 +718,37 @@ client.on(
             const commanders =
                 await getTop25();
 
-            const text =
-                commanders
-                    .map(c => {
-
-                        const colors =
-                            getColorIdentityText(
-                                c.colors
-                            );
-
-                        return `#${c.rank} ${colors} - ${c.name}`;
-
-                    })
-                    .join('\n');
-
             const embed =
                 new EmbedBuilder()
+
                     .setTitle(
                         '🔥 Top 25 Commanders'
                     )
-                    .setDescription(text)
-                    .setColor(0x8b5cf6)
+
+                    .setColor(
+                        0x8b5cf6
+                    )
+
                     .setTimestamp();
+
+            commanders.forEach(c => {
+
+                const manaIcons =
+                    manaToIcons(
+                        c.manaCost
+                    );
+
+                embed.addFields({
+
+                    name:
+                        `#${c.rank} ${manaIcons} ${c.name}`,
+
+                    value:
+                        `📚 ${c.decks} decks\n🖼️ ${c.image}`,
+
+                    inline: false
+                });
+            });
 
             await interaction.editReply({
 
@@ -610,8 +758,10 @@ client.on(
     }
 );
 
-/* =========================
+/* =========================================
    LOGIN
-========================= */
+========================================= */
 
-client.login(process.env.TOKEN);
+client.login(
+    process.env.TOKEN
+);

@@ -466,12 +466,12 @@ function buildCommanderEmbeds(commanders) {
 
     const embeds = [];
 
-    /* máximo 5 fields por embed */
+    commanders.forEach(c => {
 
-    for (let i = 0; i < commanders.length; i += 5) {
-
-        const chunk =
-            commanders.slice(i, i + 5);
+        const manaIcons =
+            manaToIcons(
+                c.manaCost
+            );
 
         const embed =
             new EmbedBuilder()
@@ -479,10 +479,14 @@ function buildCommanderEmbeds(commanders) {
                 .setColor(0x8b5cf6)
 
                 .setTitle(
-                    i === 0
-                        ? '🔥 Top 25 Commanders EDHREC'
-                        : `🔥 Continuación (${i + 1}-${i + chunk.length})`
+                    `#${c.rank} ${c.name}`
                 )
+
+                .setDescription(
+                    `${manaIcons}\n\n📚 ${c.decks} decks`
+                )
+
+                .setImage(c.image)
 
                 .setFooter({
 
@@ -492,29 +496,37 @@ function buildCommanderEmbeds(commanders) {
 
                 .setTimestamp();
 
-        chunk.forEach(c => {
-
-            const manaIcons =
-                manaToIcons(
-                    c.manaCost
-                );
-
-            embed.addFields({
-
-                name:
-                    `#${c.rank} ${manaIcons} ${c.name}`,
-
-                value:
-                    `📚 ${c.decks} decks\n🖼️ ${c.image || 'Sin imagen'}`,
-
-                inline: false
-            });
-        });
-
         embeds.push(embed);
-    }
+    });
 
     return embeds;
+}
+
+/* =========================================
+   ENVIAR EMBEDS EN BLOQUES
+========================================= */
+
+async function sendEmbedsInChunks(channel, embeds, attachment = null) {
+
+    for (let i = 0; i < embeds.length; i += 10) {
+
+        const chunk =
+            embeds.slice(i, i + 10);
+
+        if (i === 0 && attachment) {
+
+            await channel.send({
+                embeds: chunk,
+                files: [attachment]
+            });
+
+        } else {
+
+            await channel.send({
+                embeds: chunk
+            });
+        }
+    }
 }
 
 /* =========================================
@@ -612,12 +624,11 @@ async function sendTop(channel) {
             chartPath
         );
 
-    await channel.send({
-
+    await sendEmbedsInChunks(
+        channel,
         embeds,
-
-        files: [attachment]
-    });
+        attachment
+    );
 
     console.log(
         'Top enviado correctamente'
@@ -750,10 +761,33 @@ client.on(
                     commanders
                 );
 
+            /* PRIMEROS 10 */
+
             await interaction.editReply({
 
-                embeds
+                embeds:
+                    embeds.slice(0, 10)
             });
+
+            /* RESTO */
+
+            for (
+                let i = 10;
+                i < embeds.length;
+                i += 10
+            ) {
+
+                const chunk =
+                    embeds.slice(
+                        i,
+                        i + 10
+                    );
+
+                await interaction.followUp({
+
+                    embeds: chunk
+                });
+            }
         }
     }
 );

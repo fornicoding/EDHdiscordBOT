@@ -1,0 +1,46 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# Generated charts/images
+data/charts/
+
+# Optional local history/cache
+data/*.tmp
+
+# Railway
+.railway/
+
+# Puppeteer cache
+.cache/
+puppeteer-cache/
+
+# Coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/
+
+# Mac/Linux hidden files
+.*.swp

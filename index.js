@@ -7,8 +7,10 @@ const puppeteer = require('puppeteer');
 const cron = require('node-cron');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const OpenAI = require('openai');
 
 const {
+
     Client,
     GatewayIntentBits,
     EmbedBuilder,
@@ -16,18 +18,50 @@ const {
     PermissionsBitField,
     ActionRowBuilder,
     ButtonBuilder,
-    ButtonStyle
+    ButtonStyle,
+    SlashCommandBuilder,
+    REST,
+    Routes
+
 } = require('discord.js');
 
 const {
     ChartJSNodeCanvas
 } = require('chartjs-node-canvas');
 
+/* =========================================
+   CLIENT
+========================================= */
+
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds]
+
+    intents: [
+
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
 });
 
-const HISTORY_FILE = './data/history.json';
+/* =========================================
+   OPENROUTER
+========================================= */
+
+const openrouter = new OpenAI({
+
+    apiKey:
+        process.env.OPENROUTER_API_KEY,
+
+    baseURL:
+        'https://openrouter.ai/api/v1'
+});
+
+/* =========================================
+   FILES
+========================================= */
+
+const HISTORY_FILE =
+    './data/history.json';
 
 if (!fs.existsSync('./data')) {
     fs.mkdirSync('./data');
@@ -38,7 +72,11 @@ if (!fs.existsSync('./data/charts')) {
 }
 
 if (!fs.existsSync(HISTORY_FILE)) {
-    fs.writeFileSync(HISTORY_FILE, JSON.stringify([]));
+
+    fs.writeFileSync(
+        HISTORY_FILE,
+        JSON.stringify([])
+    );
 }
 
 /* =========================================
@@ -51,7 +89,7 @@ const EDHREC_URL =
     'https://edhrec.com/commanders';
 
 /* =========================================
-   ── NEW FEATURE: Top commanders by color ──
+   COLOR COMMANDS
 ========================================= */
 
 const colorCommands = [
@@ -93,14 +131,14 @@ const colorCommands = [
     { name: 'topwubg', path: 'wubg', label: 'Witch (WUBG)' },
 
     { name: 'topwubrg', path: 'wubrg', label: 'Five Color (WUBRG)' }
-
 ];
 
 /* =========================================
-   COLORES MANA
+   MANA
 ========================================= */
 
 const COLOR_MAP = {
+
     W: '⚪',
     U: '🔵',
     B: '⚫',
@@ -121,45 +159,45 @@ function manaToIcons(manaCost) {
         return '';
     }
 
-    return matches
-        .map(symbol => {
+    return matches.map(symbol => {
 
-            const clean =
-                symbol
-                    .replace('{', '')
-                    .replace('}', '');
+        const clean =
+            symbol
+                .replace('{', '')
+                .replace('}', '');
 
-            if (COLOR_MAP[clean]) {
-                return COLOR_MAP[clean];
-            }
+        if (COLOR_MAP[clean]) {
+            return COLOR_MAP[clean];
+        }
 
-            if (/^\d+$/.test(clean)) {
-                return `〔${clean}〕`;
-            }
+        if (/^\d+$/.test(clean)) {
+            return `〔${clean}〕`;
+        }
 
-            if (clean === 'C') {
-                return '◇';
-            }
+        if (clean === 'C') {
+            return '◇';
+        }
 
-            return `(${clean})`;
+        return `(${clean})`;
 
-        })
-        .join('');
+    }).join('');
 }
 
 /* =========================================
-   FECHA
+   DATE
 ========================================= */
 
 function getWeekDate() {
 
-    const now = new Date();
-
-    return now.toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
+    return new Date()
+        .toLocaleDateString(
+            'es-ES',
+            {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            }
+        );
 }
 
 /* =========================================
@@ -170,11 +208,14 @@ async function getCommanderData(name) {
 
     try {
 
-        const response = await fetch(
-            `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`
-        );
+        const response =
+            await axios.get(
 
-        const data = await response.json();
+                `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`
+            );
+
+        const data =
+            response.data;
 
         return {
 
@@ -192,9 +233,174 @@ async function getCommanderData(name) {
     } catch {
 
         return {
+
             manaCost: '',
             image: null
         };
+    }
+}
+
+/* =========================================
+   AI CARD SEARCH
+========================================= */
+
+async function searchCard(cardName) {
+
+    try {
+
+        const response =
+            await axios.get(
+
+                `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`
+            );
+
+        const card =
+            response.data;
+
+        return {
+
+            name:
+                card.name,
+
+            manaCost:
+                card.mana_cost ||
+                '',
+
+            type:
+                card.type_line,
+
+            oracle:
+                card.oracle_text ||
+                '',
+
+            image:
+                card.image_uris?.normal ||
+                null
+        };
+
+    } catch {
+
+        return null;
+    }
+}
+
+/* =========================================
+   AI PROMPT
+========================================= */
+
+const MTG_SYSTEM_PROMPT = `
+
+You are an expert Magic: The Gathering Commander assistant.
+
+Specialize in:
+- EDH
+- cEDH
+- combos
+- stack interactions
+- deckbuilding
+- synergy
+- mulligans
+- power level
+- mana curve
+- politics
+- archetypes
+
+Never invent card text.
+
+Always explain interactions clearly.
+
+Use official MTG terminology.
+`;
+
+/* =========================================
+   ASK AI
+========================================= */
+
+async function askAI(question) {
+
+    let cardData = null;
+
+    try {
+
+        const quoted =
+            question.match(/"([^"]+)"/);
+
+        if (quoted?.[1]) {
+
+            cardData =
+                await searchCard(
+                    quoted[1]
+                );
+        }
+
+        let context = '';
+
+        if (cardData) {
+
+            context = `
+
+CARD DATA
+
+Name:
+${cardData.name}
+
+Mana Cost:
+${cardData.manaCost}
+
+Type:
+${cardData.type}
+
+Oracle:
+${cardData.oracle}
+`;
+        }
+
+        const completion =
+            await openrouter.chat.completions.create({
+
+                model:
+                    process.env.AI_MODEL ||
+                    'deepseek/deepseek-chat-v3-0324:free',
+
+                messages: [
+
+                    {
+                        role: 'system',
+                        content: MTG_SYSTEM_PROMPT
+                    },
+
+                    {
+                        role: 'system',
+                        content: context
+                    },
+
+                    {
+                        role: 'user',
+                        content: question
+                    }
+                ]
+            });
+
+        return {
+
+            text:
+                completion
+                    .choices[0]
+                    .message.content,
+
+            card:
+                cardData
+        };
+
+    } catch (err) {
+
+        console.error(
+            'AI ERROR:',
+            err.response?.data ||
+            err.message
+        );
+
+        return null;
     }
 }
 
@@ -214,6 +420,7 @@ async function getTopCommanders() {
                 undefined,
 
             args: [
+
                 '--no-sandbox',
                 '--disable-setuid-sandbox'
             ]
@@ -246,50 +453,49 @@ async function getTopCommanders() {
 
                 const results = [];
 
-                cards.forEach(
-                    (card, index) => {
+                cards.forEach((card, index) => {
 
-                        if (index < TOP_LIMIT) {
+                    if (index < TOP_LIMIT) {
 
-                            const name =
-                                card.querySelector(
-                                    '[class*="Card_name"]'
-                                )
-                                ?.innerText
-                                ?.trim();
+                        const name =
+                            card.querySelector(
+                                '[class*="Card_name"]'
+                            )
+                            ?.innerText
+                            ?.trim();
 
-                            const rankText =
-                                card.querySelector(
-                                    '[class*="CardLabel_rank"]'
-                                )
-                                ?.innerText
-                                ?.trim();
+                        const rankText =
+                            card.querySelector(
+                                '[class*="CardLabel_rank"]'
+                            )
+                            ?.innerText
+                            ?.trim();
 
-                            const rank =
-                                Number(rankText) ||
-                                (index + 1);
+                        const rank =
+                            Number(rankText) ||
+                            (index + 1);
 
-                            const decksMatch =
-                                card.innerText.match(
-                                    /([\d,.]+)\s*decks/i
-                                );
+                        const decksMatch =
+                            card.innerText.match(
+                                /([\d,.]+)\s*decks/i
+                            );
 
-                            const decks =
-                                decksMatch
-                                    ? decksMatch[1]
-                                    : 'Unknown';
+                        const decks =
+                            decksMatch
+                                ? decksMatch[1]
+                                : 'Unknown';
 
-                            if (name) {
+                        if (name) {
 
-                                results.push({
-                                    rank,
-                                    name,
-                                    decks
-                                });
-                            }
+                            results.push({
+
+                                rank,
+                                name,
+                                decks
+                            });
                         }
                     }
-                );
+                });
 
                 return results;
 
@@ -318,7 +524,7 @@ async function getTopCommanders() {
 }
 
 /* =========================================
-   ── NEW FEATURE: Top commanders by color ──
+   COLOR TOPS
 ========================================= */
 
 async function fetchTopCommanders(
@@ -332,10 +538,6 @@ async function fetchTopCommanders(
         await interaction.deferReply({
             ephemeral: true
         });
-
-        await interaction.editReply(
-            '⏳ Fetching top 50 commanders...'
-        );
 
         const url =
             `https://edhrec.com/commanders/${edhrecPath}`;
@@ -360,39 +562,12 @@ async function fetchTopCommanders(
         commanders =
             commanders.slice(0, 50);
 
-        const enriched = [];
+        const embeds = [];
 
-        for (let i = 0; i < commanders.length; i++) {
-
-            const c = commanders[i];
-
-            const scryfall =
-                await getCommanderData(c.name);
-
-            enriched.push({
-
-                rank: i + 1,
-
-                name: c.name,
-
-                decks:
-                    c.num_decks ||
-                    'Unknown',
-
-                manaCost:
-                    scryfall.manaCost,
-
-                image:
-                    scryfall.image
-            });
-        }
-
-        const pages = [];
-
-        for (let i = 0; i < enriched.length; i += 10) {
+        for (let i = 0; i < commanders.length; i += 10) {
 
             const chunk =
-                enriched.slice(i, i + 10);
+                commanders.slice(i, i + 10);
 
             const embed =
                 new EmbedBuilder()
@@ -408,42 +583,51 @@ async function fetchTopCommanders(
                             `Página ${Math.floor(i / 10) + 1}/5`
                     });
 
-            chunk.forEach(c => {
+            for (let j = 0; j < chunk.length; j++) {
+
+                const c =
+                    chunk[j];
+
+                const scryfall =
+                    await getCommanderData(
+                        c.name
+                    );
 
                 const manaIcons =
                     manaToIcons(
-                        c.manaCost
+                        scryfall.manaCost
                     );
 
                 embed.addFields({
 
                     name:
-                        `#${c.rank} ${manaIcons} ${c.name}`,
+                        `#${i + j + 1} ${manaIcons} ${c.name}`,
 
                     value:
-                        `📚 ${c.decks} decks`,
+                        `📚 ${c.num_decks || 'Unknown'} decks`,
 
                     inline: false
                 });
-            });
 
-            const firstImage =
-                chunk.find(c => c.image);
+                if (
+                    j === 0 &&
+                    scryfall.image
+                ) {
 
-            if (firstImage?.image) {
-
-                embed.setThumbnail(
-                    firstImage.image
-                );
+                    embed.setThumbnail(
+                        scryfall.image
+                    );
+                }
             }
 
-            pages.push(embed);
+            embeds.push(embed);
         }
 
         let currentPage = 0;
 
         const row =
             new ActionRowBuilder()
+
                 .addComponents(
 
                     new ButtonBuilder()
@@ -460,10 +644,8 @@ async function fetchTopCommanders(
         const message =
             await interaction.editReply({
 
-                content: '',
-
                 embeds: [
-                    pages[currentPage]
+                    embeds[currentPage]
                 ],
 
                 components: [row]
@@ -483,10 +665,6 @@ async function fetchTopCommanders(
             'collect',
             async i => {
 
-                await new Promise(resolve =>
-                    setTimeout(resolve, 1500)
-                );
-
                 if (
                     i.customId === 'prev'
                 ) {
@@ -495,7 +673,7 @@ async function fetchTopCommanders(
 
                     if (currentPage < 0) {
                         currentPage =
-                            pages.length - 1;
+                            embeds.length - 1;
                     }
                 }
 
@@ -507,8 +685,9 @@ async function fetchTopCommanders(
 
                     if (
                         currentPage >=
-                        pages.length
+                        embeds.length
                     ) {
+
                         currentPage = 0;
                     }
                 }
@@ -516,18 +695,20 @@ async function fetchTopCommanders(
                 await i.update({
 
                     embeds: [
-                        pages[currentPage]
+                        embeds[currentPage]
                     ],
 
                     components: [row]
                 });
             }
         );
+
     } catch (err) {
 
         console.error(err);
 
         await interaction.editReply({
+
             content:
                 '❌ Error obteniendo commanders.'
         });
@@ -535,7 +716,7 @@ async function fetchTopCommanders(
 }
 
 /* =========================================
-   HISTORIAL
+   HISTORY
 ========================================= */
 
 function loadHistory() {
@@ -555,8 +736,14 @@ function loadHistory() {
 function saveHistory(history) {
 
     fs.writeFileSync(
+
         HISTORY_FILE,
-        JSON.stringify(history, null, 2)
+
+        JSON.stringify(
+            history,
+            null,
+            2
+        )
     );
 }
 
@@ -566,13 +753,11 @@ function saveHistory(history) {
 
 async function createChart(history) {
 
-    const width = 1200;
-    const height = 500;
-
     const chartJSNodeCanvas =
         new ChartJSNodeCanvas({
-            width,
-            height,
+
+            width: 1200,
+            height: 500,
             backgroundColour: '#1e1e2f'
         });
 
@@ -585,9 +770,7 @@ async function createChart(history) {
 
         week.commanders.forEach(c => {
 
-            if (
-                !commanders[c.name]
-            ) {
+            if (!commanders[c.name]) {
                 commanders[c.name] = [];
             }
 
@@ -606,27 +789,23 @@ async function createChart(history) {
                 fill: false
             }));
 
-    const configuration = {
-
-        type: 'line',
-
-        data: {
-
-            labels:
-                latest.map(
-                    (_, i) =>
-                        `Semana ${i + 1}`
-                ),
-
-            datasets
-        }
-    };
-
     const image =
         await chartJSNodeCanvas
-            .renderToBuffer(
-                configuration
-            );
+            .renderToBuffer({
+
+                type: 'line',
+
+                data: {
+
+                    labels:
+                        latest.map(
+                            (_, i) =>
+                                `Semana ${i + 1}`
+                        ),
+
+                    datasets
+                }
+            });
 
     const path =
         './data/charts/ranking.png';
@@ -637,35 +816,7 @@ async function createChart(history) {
 }
 
 /* =========================================
-   BLOQUEAR CHAT
-========================================= */
-
-async function lockChannel(channel) {
-
-    try {
-
-        const me = channel.guild.members.me;
-
-        if (
-            !me.permissions.has(
-                PermissionsBitField.Flags.ManageChannels
-            )
-        ) {
-            return;
-        }
-
-        await channel.permissionOverwrites.edit(
-            channel.guild.roles.everyone,
-            {
-                SendMessages: false
-            }
-        );
-
-    } catch {}
-}
-
-/* =========================================
-   ENVIAR TOP SEMANAL
+   SEND WEEKLY TOP
 ========================================= */
 
 async function sendTop(channel) {
@@ -706,7 +857,7 @@ async function sendTop(channel) {
             new EmbedBuilder()
 
                 .setTitle(
-                    `🔥 Top ${TOP_LIMIT} Commanders`
+                    `🔥 Top ${TOP_LIMIT} Commanders - ${getWeekDate()}`
                 )
 
                 .setDescription(
@@ -758,6 +909,7 @@ async function sendTop(channel) {
         }
 
         await channel.send({
+
             content:
                 `🔗 Ver ranking completo:\n${EDHREC_URL}`
         });
@@ -772,6 +924,81 @@ async function sendTop(channel) {
 }
 
 /* =========================================
+   REGISTER COMMANDS
+========================================= */
+
+async function registerCommands() {
+
+    const commands = [
+
+        new SlashCommandBuilder()
+
+            .setName('topcommanders')
+
+            .setDescription(
+                'Top 20 commanders'
+            ),
+
+        new SlashCommandBuilder()
+
+            .setName('ask')
+
+            .setDescription(
+                'Ask the MTG AI'
+            )
+
+            .addStringOption(option =>
+
+                option
+                    .setName('question')
+                    .setDescription(
+                        'Your MTG question'
+                    )
+                    .setRequired(true)
+            )
+    ];
+
+    colorCommands.forEach(c => {
+
+        commands.push(
+
+            new SlashCommandBuilder()
+
+                .setName(c.name)
+
+                .setDescription(
+                    `Top 50 ${c.label} commanders`
+                )
+        );
+    });
+
+    const rest =
+        new REST({
+            version: '10'
+        }).setToken(
+            process.env.TOKEN
+        );
+
+    await rest.put(
+
+        Routes.applicationCommands(
+            process.env.CLIENT
+        ),
+
+        {
+            body:
+                commands.map(
+                    c => c.toJSON()
+                )
+        }
+    );
+
+    console.log(
+        'Slash commands registrados'
+    );
+}
+
+/* =========================================
    READY
 ========================================= */
 
@@ -782,6 +1009,8 @@ client.once(
         console.log(
             `Conectado como ${client.user.tag}`
         );
+
+        await registerCommands();
 
         let channel;
 
@@ -800,8 +1029,6 @@ client.once(
         if (!channel) {
             return;
         }
-
-        await lockChannel(channel);
 
         await sendTop(channel);
 
@@ -833,7 +1060,67 @@ client.on(
             interaction.commandName;
 
         /* =========================================
-           TOP ORIGINAL
+           /ASK
+        ========================================= */
+
+        if (
+            commandName === 'ask'
+        ) {
+
+            await interaction.deferReply({
+                ephemeral: true
+            });
+
+            const question =
+                interaction.options.getString(
+                    'question'
+                );
+
+            const ai =
+                await askAI(question);
+
+            if (!ai) {
+
+                return interaction.editReply({
+
+                    content:
+                        '❌ Error contacting AI.'
+                });
+            }
+
+            const embed =
+                new EmbedBuilder()
+
+                    .setTitle(
+                        '🧠 MTG Commander AI'
+                    )
+
+                    .setDescription(
+                        ai.text
+                            .slice(0, 4000)
+                    )
+
+                    .setColor(
+                        0x8b5cf6
+                    );
+
+            if (
+                ai.card?.image
+            ) {
+
+                embed.setThumbnail(
+                    ai.card.image
+                );
+            }
+
+            return interaction.editReply({
+
+                embeds: [embed]
+            });
+        }
+
+        /* =========================================
+           TOP 20
         ========================================= */
 
         if (
@@ -855,25 +1142,28 @@ client.on(
                         `🔥 Top ${TOP_LIMIT} Commanders`
                     )
 
-                    .setDescription(
-                        commanders
-                            .map(c => {
-
-                                const manaIcons =
-                                    manaToIcons(
-                                        c.manaCost
-                                    );
-
-                                return `#${c.rank} ${manaIcons} ${c.name} — 📚 ${c.decks} decks`;
-                            })
-                            .join('\n') +
-
-                            `\n\n🔗 Ranking completo:\n${EDHREC_URL}`
-                    )
-
                     .setColor(
                         0x8b5cf6
                     );
+
+            commanders.forEach(c => {
+
+                const manaIcons =
+                    manaToIcons(
+                        c.manaCost
+                    );
+
+                embed.addFields({
+
+                    name:
+                        `#${c.rank} ${manaIcons} ${c.name}`,
+
+                    value:
+                        `📚 ${c.decks} decks`,
+
+                    inline: false
+                });
+            });
 
             return interaction.editReply({
 
@@ -882,7 +1172,7 @@ client.on(
         }
 
         /* =========================================
-           TOP COLORES
+           COLOR COMMANDS
         ========================================= */
 
         const colorCmd =

@@ -70,37 +70,25 @@ function manaToIcons(manaCost) {
                     .replace('{', '')
                     .replace('}', '');
 
-            /* MONOCOLOR */
-
             if (COLOR_MAP[clean]) {
                 return COLOR_MAP[clean];
             }
-
-            /* INCOLORO NUMÉRICO */
 
             if (/^\d+$/.test(clean)) {
                 return `〔${clean}〕`;
             }
 
-            /* INCOLORO */
-
             if (clean === 'C') {
                 return '◇';
             }
-
-            /* HÍBRIDOS */
 
             if (clean.includes('/')) {
                 return `(${clean})`;
             }
 
-            /* PHYREXIAN */
-
             if (clean.includes('P')) {
                 return `(${clean})`;
             }
-
-            /* X */
 
             if (clean === 'X') {
                 return '〔X〕';
@@ -274,8 +262,6 @@ async function getTop25() {
 
                 return results;
             });
-
-        /* SCRYFALL */
 
         for (const commander of data) {
 
@@ -511,6 +497,22 @@ async function lockChannel(channel) {
 
     try {
 
+        const me =
+            channel.guild.members.me;
+
+        if (
+            !me.permissions.has(
+                PermissionsBitField.Flags.ManageChannels
+            )
+        ) {
+
+            console.log(
+                'El bot no tiene permisos para bloquear el canal'
+            );
+
+            return;
+        }
+
         await channel.permissionOverwrites.edit(
             channel.guild.roles.everyone,
             {
@@ -526,7 +528,7 @@ async function lockChannel(channel) {
 
         console.error(
             'Error bloqueando canal:',
-            err
+            err.message
         );
     }
 }
@@ -538,6 +540,10 @@ async function lockChannel(channel) {
 async function setupBotProfile() {
 
     try {
+
+        if (!fs.existsSync('./botedh.png')) {
+            return;
+        }
 
         const avatar =
             fs.readFileSync('./botedh.png');
@@ -564,212 +570,216 @@ async function setupBotProfile() {
 
 async function sendTop(channel) {
 
-    console.log(
-        'Obteniendo top commanders...'
-    );
-
-    const commanders =
-        await getTop25();
-
-    if (!commanders.length) {
+    try {
 
         console.log(
-            'No se obtuvieron commanders'
+            'Obteniendo top commanders...'
         );
 
-        return;
-    }
+        const commanders =
+            await getTop25();
 
-    const history =
-        loadHistory();
+        if (!commanders.length) {
 
-    const previous =
-        history.length
-            ? history[
-                history.length - 1
-            ].commanders
-            : [];
-
-    const changes =
-        compareRanks(
-            commanders,
-            previous
-        );
-
-    history.push({
-
-        date:
-            new Date()
-                .toISOString(),
-
-        commanders
-    });
-
-    saveHistory(history);
-
-    const weekDate =
-        getWeekDate();
-
-    /* =========================================
-       CHART
-    ========================================= */
-
-    const chartPath =
-        await createChart(
-            history
-        );
-
-    const attachment =
-        new AttachmentBuilder(
-            chartPath,
-            {
-                name: 'ranking.png'
-            }
-        );
-
-    /* =========================================
-       EMBED PRINCIPAL
-    ========================================= */
-
-    const mainEmbed =
-        new EmbedBuilder()
-
-            .setTitle(
-                `🔥 Top 25 Commanders - ${weekDate}`
-            )
-
-            .setDescription(
-                'Ranking semanal de commanders más populares en EDHREC'
-            )
-
-            .setColor(0x8b5cf6)
-
-            .setImage(
-                'attachment://ranking.png'
-            )
-
-            .setFooter({
-
-                text:
-                    'Datos obtenidos desde EDHREC + Scryfall'
-            })
-
-            .setTimestamp();
-
-    commanders.forEach(c => {
-
-        const manaIcons =
-            manaToIcons(
-                c.manaCost
+            console.log(
+                'No se obtuvieron commanders'
             );
 
-        mainEmbed.addFields({
-
-            name:
-                `#${c.rank} ${manaIcons} ${c.name}`,
-
-            value:
-                `📚 ${c.decks} decks`,
-
-            inline: false
-        });
-    });
-
-    /* =========================================
-       TENDENCIAS
-    ========================================= */
-
-    const trendEmbed =
-        new EmbedBuilder()
-
-            .setTitle(
-                '📈 Tendencias'
-            )
-
-            .setDescription(
-                changes.length
-                    ? changes.join('\n')
-                    : 'Sin cambios'
-            )
-
-            .setColor(
-                0x22c55e
-            );
-
-    /* =========================================
-       EMBEDS IMAGENES
-    ========================================= */
-
-    const imageEmbeds = [];
-
-    commanders.forEach(c => {
-
-        if (!c.image) {
             return;
         }
 
-        const manaIcons =
-            manaToIcons(
-                c.manaCost
+        const history =
+            loadHistory();
+
+        const previous =
+            history.length
+                ? history[
+                    history.length - 1
+                ].commanders
+                : [];
+
+        const changes =
+            compareRanks(
+                commanders,
+                previous
             );
 
-        const embed =
+        history.push({
+
+            date:
+                new Date()
+                    .toISOString(),
+
+            commanders
+        });
+
+        saveHistory(history);
+
+        const weekDate =
+            getWeekDate();
+
+        const chartPath =
+            await createChart(
+                history
+            );
+
+        const attachment =
+            new AttachmentBuilder(
+                chartPath,
+                {
+                    name: 'ranking.png'
+                }
+            );
+
+        /* =========================================
+           EMBED PRINCIPAL
+        ========================================= */
+
+        const mainEmbed =
             new EmbedBuilder()
 
                 .setTitle(
-                    `#${c.rank} ${manaIcons} ${c.name}`
+                    `🔥 Top 25 Commanders - ${weekDate}`
                 )
 
                 .setDescription(
-                    `📚 ${c.decks} decks`
+                    'Ranking semanal de commanders más populares en EDHREC'
                 )
 
+                .setColor(0x8b5cf6)
+
                 .setImage(
-                    c.image
+                    'attachment://ranking.png'
+                )
+
+                .setFooter({
+
+                    text:
+                        'Datos obtenidos desde EDHREC + Scryfall'
+                })
+
+                .setTimestamp();
+
+        const topText =
+            commanders.map(c => {
+
+                const manaIcons =
+                    manaToIcons(
+                        c.manaCost
+                    );
+
+                return `#${c.rank} ${manaIcons} ${c.name}\n📚 ${c.decks} decks`;
+
+            }).join('\n\n');
+
+        mainEmbed.addFields({
+            name: '🏆 Ranking',
+            value: topText.slice(0, 1024)
+        });
+
+        /* =========================================
+           TENDENCIAS
+        ========================================= */
+
+        const trendEmbed =
+            new EmbedBuilder()
+
+                .setTitle(
+                    '📈 Tendencias'
+                )
+
+                .setDescription(
+                    changes.length
+                        ? changes.join('\n')
+                        : 'Sin cambios'
                 )
 
                 .setColor(
-                    0x8b5cf6
+                    0x22c55e
                 );
 
-        imageEmbeds.push(embed);
-    });
-
-    /* =========================================
-       MENSAJE PRINCIPAL
-    ========================================= */
-
-    await channel.send({
-
-        embeds: [
-            mainEmbed,
-            trendEmbed
-        ],
-
-        files: [attachment]
-    });
-
-    /* =========================================
-       ENVIAR IMAGENES EN BLOQUES
-    ========================================= */
-
-    for (
-        let i = 0;
-        i < imageEmbeds.length;
-        i += 8
-    ) {
-
-        const chunk =
-            imageEmbeds.slice(i, i + 8);
+        /* =========================================
+           MENSAJE PRINCIPAL
+        ========================================= */
 
         await channel.send({
-            embeds: chunk
-        });
-    }
 
-    console.log(
-        'Top enviado correctamente'
-    );
+            embeds: [
+                mainEmbed,
+                trendEmbed
+            ],
+
+            files: [attachment]
+        });
+
+        /* =========================================
+           EMBEDS IMAGENES
+        ========================================= */
+
+        const imageEmbeds = [];
+
+        commanders.forEach(c => {
+
+            if (!c.image) {
+                return;
+            }
+
+            const manaIcons =
+                manaToIcons(
+                    c.manaCost
+                );
+
+            const embed =
+                new EmbedBuilder()
+
+                    .setTitle(
+                        `#${c.rank} ${manaIcons} ${c.name}`
+                    )
+
+                    .setDescription(
+                        `📚 ${c.decks} decks`
+                    )
+
+                    .setImage(
+                        c.image
+                    )
+
+                    .setColor(
+                        0x8b5cf6
+                    );
+
+            imageEmbeds.push(embed);
+        });
+
+        /* =========================================
+           ENVIAR IMAGENES EN BLOQUES
+        ========================================= */
+
+        for (
+            let i = 0;
+            i < imageEmbeds.length;
+            i += 10
+        ) {
+
+            const chunk =
+                imageEmbeds.slice(i, i + 10);
+
+            await channel.send({
+                embeds: chunk
+            });
+        }
+
+        console.log(
+            'Top enviado correctamente'
+        );
+
+    } catch (err) {
+
+        console.error(
+            'Error enviando top:',
+            err
+        );
+    }
 }
 
 /* =========================================
@@ -896,45 +906,69 @@ client.on(
 
             await interaction.deferReply();
 
-            const commanders =
-                await getTop25();
+            try {
 
-            const embed =
-                new EmbedBuilder()
+                const commanders =
+                    await getTop25();
 
-                    .setTitle(
-                        '🔥 Top 25 Commanders'
-                    )
+                const embeds = [];
 
-                    .setColor(
-                        0x8b5cf6
-                    )
+                for (
+                    let i = 0;
+                    i < commanders.length;
+                    i += 10
+                ) {
 
-                    .setTimestamp();
+                    const chunk =
+                        commanders.slice(i, i + 10);
 
-            commanders.forEach(c => {
+                    const embed =
+                        new EmbedBuilder()
 
-                const manaIcons =
-                    manaToIcons(
-                        c.manaCost
-                    );
+                            .setTitle(
+                                `🔥 Top Commanders (${i + 1}-${i + chunk.length})`
+                            )
 
-                embed.addFields({
+                            .setColor(
+                                0x8b5cf6
+                            )
 
-                    name:
-                        `#${c.rank} ${manaIcons} ${c.name}`,
+                            .setTimestamp();
 
-                    value:
-                        `📚 ${c.decks} decks`,
+                    chunk.forEach(c => {
 
-                    inline: false
+                        const manaIcons =
+                            manaToIcons(
+                                c.manaCost
+                            );
+
+                        embed.addFields({
+
+                            name:
+                                `#${c.rank} ${manaIcons} ${c.name}`,
+
+                            value:
+                                `📚 ${c.decks} decks`,
+
+                            inline: false
+                        });
+                    });
+
+                    embeds.push(embed);
+                }
+
+                await interaction.editReply({
+                    embeds: embeds.slice(0, 10)
                 });
-            });
 
-            await interaction.editReply({
+            } catch (err) {
 
-                embeds: [embed]
-            });
+                console.error(err);
+
+                await interaction.editReply({
+                    content: 'Error obteniendo commanders'
+                });
+            }
         }
     }
 );

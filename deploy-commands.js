@@ -58,28 +58,16 @@ const colorCommands = [
 const commands = [
 
     new SlashCommandBuilder()
-
         .setName('topcommanders')
-
-        .setDescription(
-            'Top 20 commanders'
-        ),
+        .setDescription('Top 20 commanders'),
 
     new SlashCommandBuilder()
-
         .setName('ask')
-
-        .setDescription(
-            'Ask the MTG AI'
-        )
-
+        .setDescription('Ask the MTG AI')
         .addStringOption(option =>
-
             option
                 .setName('question')
-                .setDescription(
-                    'Your MTG question'
-                )
+                .setDescription('Your MTG question')
                 .setRequired(true)
         )
 ];
@@ -93,9 +81,7 @@ colorCommands.forEach(c => {
     commands.push(
 
         new SlashCommandBuilder()
-
             .setName(c.name)
-
             .setDescription(
                 `Top 50 ${c.label} commanders`
             )
@@ -114,26 +100,21 @@ const rest = new REST({
 
     try {
 
-        console.log(
-            'Registrando slash commands...'
-        );
+        console.log('Registrando slash commands...');
 
         await rest.put(
 
-            Routes.applicationCommands(
-                process.env.CLIENT_ID
+            Routes.applicationGuildCommands(
+                process.env.CLIENT_ID,
+                process.env.GUILD_ID
             ),
 
             {
-                body: commands.map(
-                    c => c.toJSON()
-                )
+                body: commands.map(c => c.toJSON())
             }
         );
 
-        console.log(
-            'Slash commands registrados.'
-        );
+        console.log('✅ Slash commands registrados.');
 
     } catch (error) {
 

@@ -494,7 +494,7 @@ async function fetchTopCommanders(
     try {
 
         await interaction.deferReply({
-            ephemeral: true
+            flags: 64
         });
 
         const url =
@@ -946,7 +946,7 @@ async function registerCommands() {
 ========================================= */
 
 client.once(
-    'ready',
+    'clientReady',
     async () => {
 
         console.log(
@@ -1015,9 +1015,9 @@ client.on(
 
         if (commandName === 'ask') {
 
-            await interaction.deferReply({
-                ephemeral: true
-            });
+        await interaction.deferReply({
+            flags: 64
+        });
 
             const question =
                 interaction.options.getString(
@@ -1064,9 +1064,8 @@ client.on(
             commandName ===
             'topcommanders'
         ) {
-
             await interaction.deferReply({
-                ephemeral: true
+                flags: 64
             });
 
             const commanders =

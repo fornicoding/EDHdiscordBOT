@@ -925,7 +925,7 @@ async function registerCommands() {
     await rest.put(
 
         Routes.applicationCommands(
-            process.env.CLIENT
+            process.env.CLIENT_ID
         ),
 
         {
